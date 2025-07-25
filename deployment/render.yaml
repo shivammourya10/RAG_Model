@@ -1,0 +1,35 @@
+# render.yaml
+services:
+  # Web Service
+  - type: web
+    name: hackrx-intelligent-query-system
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /health
+    envVars:
+      - key: API_BEARER_TOKEN
+        value: e4b975d68599b231b42b0b2face528c5d0df07c55c976fd98c8ab740a50ad638
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: PINECONE_ENVIRONMENT
+        sync: false
+      - key: PINECONE_INDEX_NAME
+        value: hackrx-intelligent-query-system
+      - key: LLM_PROVIDER
+        value: openai
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: CHUNK_SIZE
+        value: 1000
+      - key: TOP_K_RETRIEVAL
+        value: 5
+      - key: ENABLE_TOKEN_COUNTING
+        value: true
+
+databases:
+  - name: hackrx-postgres
+    plan: starter
