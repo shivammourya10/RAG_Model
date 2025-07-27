@@ -272,7 +272,7 @@ class RAGEngine:
         except Exception as e:
             raise Exception(f"Error processing document: {e}")
     
-    async def retrieve_context_for_question(self, question: str, document_url: str = None) -> Tuple[str, List[Dict]]:
+    async def retrieve_context_for_question(self, question: str, document_url: str = "") -> Tuple[str, List[Dict]]:
         """Retrieve relevant context with detailed citation information."""
         try:
             # Check if Pinecone is available
@@ -355,7 +355,7 @@ class RAGEngine:
         
         return result
     
-    async def _fallback_retrieval(self, question: str, document_url: str = None) -> Tuple[str, List[Dict]]:
+    async def _fallback_retrieval(self, question: str, document_url: str = "") -> Tuple[str, List[Dict]]:
         """Fallback retrieval method when Pinecone is not available."""
         try:
             from database import SessionLocal, DocumentChunk, ProcessedDocument
@@ -522,6 +522,38 @@ class RAGEngine:
             
         except Exception as e:
             raise Exception(f"Error in semantic answer generation: {e}")
+    
+    def clear_all_vectors(self):
+        """Clear all vectors from Pinecone index for fresh demonstration."""
+        try:
+            if self.pinecone_index is None:
+                print("⚠️ Pinecone index not available")
+                return {"cleared_vectors": 0, "status": "no_index"}
+            
+            # Get all vector IDs in the index
+            stats = self.pinecone_index.describe_index_stats()
+            total_vectors = stats.get('total_vector_count', 0)
+            
+            if total_vectors == 0:
+                print("📭 No vectors to clear")
+                return {"cleared_vectors": 0, "status": "already_empty"}
+            
+            # Delete all vectors
+            self.pinecone_index.delete(delete_all=True)
+            print(f"🗑️ Cleared {total_vectors} vectors from Pinecone")
+            
+            return {
+                "cleared_vectors": total_vectors,
+                "status": "success"
+            }
+            
+        except Exception as e:
+            print(f"❌ Error clearing Pinecone vectors: {e}")
+            return {
+                "cleared_vectors": 0,
+                "status": "error",
+                "error": str(e)
+            }
 
 # Backward compatibility functions
 processed_docs_cache = set()

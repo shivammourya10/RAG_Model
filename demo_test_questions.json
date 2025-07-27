@@ -1,0 +1,25 @@
+{
+  "document_url": "https://hackrx.in/policies/BAJHLIP23020V012223.pdf",
+  "test_questions": [
+    {
+      "question": "What is Day Care Treatment and what are its requirements?",
+      "expected_topic": "Day care treatment definition and conditions"
+    },
+    {
+      "question": "What happens if there is misrepresentation or non-disclosure of material facts?",
+      "expected_topic": "Disclosure norms and policy consequences"
+    },
+    {
+      "question": "What is Emergency Care and when does it apply?",
+      "expected_topic": "Emergency care definition and criteria"
+    }
+  ],
+  "postman_payload": {
+    "documents": "https://hackrx.in/policies/BAJHLIP23020V012223.pdf",
+    "questions": [
+      "What is Day Care Treatment and what are its requirements?",
+      "What happens if there is misrepresentation or non-disclosure of material facts?",
+      "What is Emergency Care and when does it apply?"
+    ]
+  }
+}

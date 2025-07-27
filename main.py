@@ -190,37 +190,96 @@ async def hackrx_evaluation_endpoint(
 ):
     """
     Main HackRX 6.0 evaluation endpoint.
+    ============================
     
-    Processes documents and answers questions with <30 second latency requirement.
-    Uses concurrent processing for optimal performance.
-    
-    Args:
-        request: HackRX request containing document URL and questions
-        authorized: Token verification result
-        
-    Returns:
-        HackRxResponse: List of answers corresponding to questions
+    Process documents and answer questions with detailed pipeline timing.
     """
     start_time = time.time()
+    pipeline_timings = {}
     
     try:
-        # Step 1: Process document
-        print(f"📄 Processing document: {request.documents}")
+        print(f"🚀 STARTING HACKRX 6.0 PIPELINE")
+        print(f"📄 Document: {request.documents}")
+        print(f"❓ Questions: {len(request.questions)}")
+        print("=" * 60)
+        
+        # Stage 1: Document Download and Processing
+        doc_start = time.time()
+        print(f"📥 STAGE 1: Document Download & Processing...")
+        
         document_data = document_processor.process_document_from_url(request.documents)
+        doc_time = time.time() - doc_start
+        pipeline_timings['document_processing'] = doc_time
         
-        # Step 2: Store in vector database
-        processing_result = await rag_engine.process_and_store_document(
-            document_data, request.documents
-        )
+        print(f"✅ Document processed in {doc_time:.2f}s")
+        print(f"   📊 Pages: {len(document_data.get('pages', []))}")
+        print(f"   📝 Content length: {len(document_data.get('full_text', ''))} chars")
         
-        # Step 3: Process all questions concurrently
-        async def process_single_question(question: str) -> str:
-            """Process individual question with context retrieval and LLM generation."""
+        # Stage 2: Check if document exists in database
+        db_start = time.time()
+        print(f"🗄️ STAGE 2: Database Check...")
+        
+        existing_doc = db_manager.get_document_by_url(request.documents)
+        is_first_time = existing_doc is None
+        db_time = time.time() - db_start
+        pipeline_timings['database_check'] = db_time
+        
+        if is_first_time:
+            print(f"🆕 FIRST TIME PROCESSING - Complete pipeline will run")
+        else:
+            print(f"♻️ DOCUMENT ALREADY PROCESSED - Using cached data")
+        print(f"✅ Database check completed in {db_time:.3f}s")
+        
+        # Stage 3: Text Chunking (if first time)
+        if is_first_time:
+            chunk_start = time.time()
+            print(f"✂️ STAGE 3: Text Chunking...")
+            
+            chunks = rag_engine.create_intelligent_chunks(document_data)
+            chunk_time = time.time() - chunk_start
+            pipeline_timings['text_chunking'] = chunk_time
+            
+            print(f"✅ Text chunked in {chunk_time:.2f}s")
+            print(f"   📦 Total chunks: {len(chunks)}")
+            print(f"   📏 Avg chunk size: {sum(len(c['content']) for c in chunks) // len(chunks)} chars")
+        else:
+            pipeline_timings['text_chunking'] = 0.0
+            print(f"⏭️ STAGE 3: Skipping chunking (already done)")
+        
+        # Stage 4: Vector Embedding & Storage (if first time)  
+        if is_first_time:
+            embed_start = time.time()
+            print(f"🧠 STAGE 4: Vector Embedding & Storage...")
+            
+            # This will embed and store in Pinecone
+            processing_result = await rag_engine.process_and_store_document(document_data, request.documents)
+            embed_time = time.time() - embed_start
+            pipeline_timings['embedding_and_storage'] = embed_time
+            
+            print(f"✅ Embeddings created and stored in {embed_time:.2f}s")
+            print(f"   🎯 Vectors stored: {processing_result.get('vectors_stored', 0)}")
+        else:
+            pipeline_timings['embedding_and_storage'] = 0.0
+            print(f"⏭️ STAGE 4: Skipping embedding (already done)")
+        
+        # Stage 5: Process Questions Concurrently
+        questions_start = time.time()
+        print(f"🔄 STAGE 5: Processing {len(request.questions)} questions...")
+        
+        async def process_single_question(question: str, question_num: int) -> str:
+            """Process individual question with detailed timing."""
+            q_start = time.time()
+            print(f"   🤔 Q{question_num}: {question[:50]}...")
+            
             try:
-                # Retrieve relevant context
+                # Stage 5a: Context Retrieval
+                retrieval_start = time.time()
                 context, citations = await rag_engine.retrieve_context_for_question(
                     question, request.documents
                 )
+                retrieval_time = time.time() - retrieval_start
+                
+                print(f"   🔍 Retrieved context in {retrieval_time:.3f}s ({len(citations)} chunks)")
                 
                 # Format retrieval info consistently
                 retrieval_info = {
@@ -229,13 +288,18 @@ async def hackrx_evaluation_endpoint(
                     "context_length": len(context)
                 }
                 
-                # Generate answer using LLM
+                # Stage 5b: LLM Response Generation
+                llm_start = time.time()
                 answer, enhanced_response = await llm_client.get_enhanced_answer(
                     question, context, document_data['metadata']
                 )
+                llm_time = time.time() - llm_start
                 
-                # Log query for analytics
-                question_time = time.time() - start_time
+                print(f"   🧠 LLM response in {llm_time:.3f}s")
+                
+                # Stage 5c: Database Logging
+                log_start = time.time()
+                question_time = time.time() - q_start
                 db_manager.log_query(
                     document_url=request.documents,
                     question=question,
@@ -245,17 +309,24 @@ async def hackrx_evaluation_endpoint(
                     response_time=question_time,
                     tokens_used=enhanced_response.get('performance_metrics', {}).get('tokens_used', 0)
                 )
+                log_time = time.time() - log_start
+                
+                print(f"   📝 Logged in {log_time:.3f}s")
+                print(f"   ✅ Q{question_num} completed in {question_time:.3f}s")
                 
                 return answer
                 
             except Exception as e:
-                print(f"❌ Error processing question '{question}': {e}")
+                error_time = time.time() - q_start
+                print(f"   ❌ Q{question_num} failed in {error_time:.3f}s: {e}")
                 return f"Error processing question: {str(e)}"
         
-        # Execute all questions concurrently for optimal latency
-        print(f"🔄 Processing {len(request.questions)} questions concurrently...")
-        tasks = [process_single_question(q) for q in request.questions]
+        # Execute all questions concurrently
+        tasks = [process_single_question(q, i+1) for i, q in enumerate(request.questions)]
         answers = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        questions_time = time.time() - questions_start
+        pipeline_timings['questions_processing'] = questions_time
         
         # Handle any exceptions in results
         final_answers = []
@@ -266,13 +337,22 @@ async def hackrx_evaluation_endpoint(
                 final_answers.append(answer)
         
         total_time = time.time() - start_time
-        print(f"✅ Processed {len(request.questions)} questions in {total_time:.2f}s")
+        pipeline_timings['total_time'] = total_time
+        
+        print("=" * 60)
+        print(f"🎯 PIPELINE COMPLETED!")
+        print(f"⏱️ Total time: {total_time:.2f}s")
+        print(f"📊 Timing breakdown:")
+        for stage, timing in pipeline_timings.items():
+            print(f"   {stage}: {timing:.3f}s")
+        print(f"✅ Processed {len(request.questions)} questions successfully")
+        print("=" * 60)
         
         return HackRxResponse(answers=final_answers)
         
     except Exception as e:
         error_time = time.time() - start_time
-        print(f"❌ Error processing request: {e} (took {error_time:.2f}s)")
+        print(f"❌ PIPELINE FAILED after {error_time:.2f}s: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to process request: {str(e)}"
@@ -303,6 +383,42 @@ async def get_system_stats(authorized: bool = Depends(verify_token)):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get stats: {str(e)}"
+        )
+
+
+@app.post("/reset-system")
+async def reset_system(authorized: bool = Depends(verify_token)):
+    """Reset system by clearing all database data for fresh processing demonstration."""
+    try:
+        print("🧹 Starting system reset...")
+        
+        # Clear PostgreSQL tables
+        print("🗄️ Clearing PostgreSQL tables...")
+        reset_result = db_manager.reset_all_data()
+        
+        # Clear Pinecone vectors if index exists
+        print("🔍 Clearing Pinecone vectors...")
+        vector_result = rag_engine.clear_all_vectors()
+        
+        reset_info = {
+            "status": "success",
+            "message": "System reset completed successfully",
+            "cleared": {
+                "postgresql_records": reset_result.get("cleared_records", 0),
+                "pinecone_vectors": vector_result.get("cleared_vectors", 0)
+            },
+            "next_request_will_show": "Complete pipeline from document download to response"
+        }
+        
+        print("✅ System reset completed!")
+        return reset_info
+        
+    except Exception as e:
+        error_msg = f"Failed to reset system: {str(e)}"
+        print(f"❌ {error_msg}")
+        raise HTTPException(
+            status_code=500,
+            detail=error_msg
         )
 
 

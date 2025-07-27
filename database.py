@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 from datetime import datetime
+from typing import Optional
 from config import DATABASE_URL
 
 Base = declarative_base()
@@ -124,7 +125,7 @@ class DatabaseManager:
     @staticmethod
     def log_query(document_url: str, question: str, answer: str, 
                   context_used: str, citations: str, response_time: float, 
-                  tokens_used: int = None):
+                  tokens_used: int = 0):
         """Log query and response for analytics."""
         db = SessionLocal()
         try:
@@ -157,6 +158,42 @@ class DatabaseManager:
                 "total_processed_documents": total_docs,
                 "total_queries_handled": total_queries
             }
+        finally:
+            db.close()
+    
+    def get_document_by_url(self, url: str) -> Optional[ProcessedDocument]:
+        """Check if document already exists in database."""
+        db = SessionLocal()
+        try:
+            document = db.query(ProcessedDocument).filter(
+                ProcessedDocument.url == url,
+                ProcessedDocument.is_active == True
+            ).first()
+            return document
+        finally:
+            db.close()
+    
+    def reset_all_data(self):
+        """Reset all database data for fresh demonstration."""
+        db = SessionLocal()
+        try:
+            # Count records before deletion
+            doc_count = db.query(ProcessedDocument).count()
+            query_count = db.query(QueryLog).count()
+            
+            # Delete all records
+            db.query(QueryLog).delete()
+            db.query(ProcessedDocument).delete()
+            db.commit()
+            
+            return {
+                "cleared_records": doc_count + query_count,
+                "documents_cleared": doc_count,
+                "queries_cleared": query_count
+            }
+        except Exception as e:
+            db.rollback()
+            raise Exception(f"Failed to reset database: {e}")
         finally:
             db.close()
 
