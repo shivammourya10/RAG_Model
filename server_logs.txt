@@ -1,0 +1,27 @@
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/pydantic/_internal/_config.py:318: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+/Users/shivammourya/cohot/RAG_Model/main.py:429: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+/Users/shivammourya/cohot/RAG_Model/main.py:460: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("shutdown")
+INFO:     Will watch for changes in these directories: ['/Users/shivammourya/cohot/RAG_Model']
+ERROR:    [Errno 48] Address already in use
+Database tables created successfully
+Loading sentence transformer model...
+✅ Embeddings model loaded
+✅ Text splitter initialized
+✅ Pinecone serverless index connected
+✅ LLM client initialized
+✅ Document processor initialized
+✅ Database connected

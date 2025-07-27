@@ -428,8 +428,29 @@ async def reset_system(authorized: bool = Depends(verify_token)):
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize services on application startup."""
+    """Initialize services on application startup with diagnostics."""
     print("🚀 Starting HackRX 6.0 Intelligent Query-Retrieval System...")
+    
+    # ADD CRITICAL DIAGNOSTICS
+    try:
+        from pinecone import Pinecone
+        pc = Pinecone(api_key=config.pinecone_api_key)
+        index = pc.Index(config.pinecone_index_name)
+        stats = index.describe_index_stats()
+        print(f"📊 Pinecone Index Stats: {stats}")
+        print(f"📏 Index Dimension: {stats['dimension']}")
+        print(f"🎯 Current Vector Count: {stats['total_vector_count']}")
+        
+        # Check if dimension matches our model
+        if stats['dimension'] != 384:
+            print(f"⚠️ DIMENSION MISMATCH! Index expects {stats['dimension']}, model produces 384")
+            print(f"💡 Run: python3 recreate_index.py to fix this")
+        else:
+            print("✅ Dimension matches - Index properly configured")
+            
+    except Exception as e:
+        print(f"⚠️ Pinecone diagnostic failed: {e}")
+    
     print(f"🤖 LLM Provider: {config.llm_provider}")
     print(f"🗄️ Vector DB: Pinecone ({config.pinecone_index_name})")
     print(f"💾 Database: PostgreSQL")

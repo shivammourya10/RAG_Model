@@ -204,35 +204,75 @@ class RAGEngine:
             # Create intelligent chunks
             chunks_data = self.create_intelligent_chunks(document_data)
             
-            # Generate embeddings
-            embeddings = self.embedder.encode([chunk['content'] for chunk in chunks_data])
+            # Initialize vector count tracker
+            vectors_stored = 0
             
             # Store in Pinecone if available
             if self.pinecone_index:
-                # Prepare vectors for Pinecone
-                vectors_to_upsert = []
-                for i, (chunk_data, embedding) in enumerate(zip(chunks_data, embeddings)):
-                    vector_id = f"{content_hash}_{i}"
-                    
-                    vectors_to_upsert.append({
-                        "id": vector_id,
+                print(f"🚀 SPEED-OPTIMIZED embedding generation for {len(chunks_data)} chunks...")
+                embed_start = time.time()
+                
+                # ULTRA-FAST embedding generation with maximum batch size
+                chunk_contents = [chunk['content'] for chunk in chunks_data]
+                embeddings = self.embedder.encode(
+                    chunk_contents, 
+                    batch_size=128,  # Increased from 64 to 128 for maximum speed
+                    show_progress_bar=False,
+                    normalize_embeddings=True,
+                    convert_to_numpy=True,
+                    device='cpu'  # Ensure consistent CPU processing for stability
+                )
+                embed_time = time.time() - embed_start
+                print(f"✅ Embeddings generated in {embed_time:.2f}s")
+                
+                # OPTIMIZATION 2: Streamlined vector preparation (no extra loops)
+                prep_start = time.time()
+                vectors_to_upsert = [
+                    {
+                        "id": f"{content_hash}_{i}",
                         "values": embedding.tolist(),
                         "metadata": {
-                            "content": chunk_data['content'],
+                            "content": chunk_data['content'][:300],  # Reduced from 500 to 300
                             "chunk_index": i,
                             "document_url": document_url,
-                            "document_type": doc_type,
                             "content_hash": content_hash,
-                            **chunk_data['metadata']
+                            "page_number": chunk_data['metadata'].get('page_number', 1)
                         }
-                    })
+                    }
+                    for i, (chunk_data, embedding) in enumerate(zip(chunks_data, embeddings))
+                ]
+                prep_time = time.time() - prep_start
+                print(f"⚡ Vector preparation in {prep_time:.2f}s")
                 
-                # Upsert to Pinecone in batches
-                batch_size = 100
-                for i in range(0, len(vectors_to_upsert), batch_size):
-                    batch = vectors_to_upsert[i:i + batch_size]
-                    self.pinecone_index.upsert(vectors=batch)
-                print(f"✅ Stored {len(vectors_to_upsert)} vectors in Pinecone")
+                # OPTIMIZATION 3: Larger batch size for Pinecone (less network calls)
+                batch_size = 150  # Increased from 100 to 150
+                total_batches = (len(vectors_to_upsert) + batch_size - 1) // batch_size
+                print(f"📤 FAST upserting {len(vectors_to_upsert)} vectors in {total_batches} batches...")
+                
+                upsert_start = time.time()
+                successful_upserts = 0
+                try:
+                    for i in range(0, len(vectors_to_upsert), batch_size):
+                        batch = vectors_to_upsert[i:i + batch_size]
+                        batch_num = (i // batch_size) + 1
+                        
+                        # Upsert with error handling (no extra logging in loop for speed)
+                        upsert_response = self.pinecone_index.upsert(vectors=batch)
+                        successful_upserts += len(batch)
+                        print(f"   📦 Batch {batch_num}/{total_batches} uploaded ({len(batch)} vectors)")
+                    
+                    upsert_time = time.time() - upsert_start
+                    print(f"✅ All batches processed in {upsert_time:.2f}s - {successful_upserts} vectors uploaded")
+                    print(f"⚡ SPEED MODE: Skipping verification (vectors propagate in background)")
+                    
+                    vectors_stored = successful_upserts
+                    
+                except Exception as upsert_error:
+                    print(f"💥 UPSERT ERROR: {upsert_error}")
+                    raise Exception(f"Failed to store vectors: {upsert_error}")
+                
+                total_storage_time = time.time() - embed_start
+                print(f"🎯 TOTAL STORAGE TIME: {total_storage_time:.2f}s")
             else:
                 print("⚠️  Pinecone not available - document stored in database only")
             
@@ -266,7 +306,8 @@ class RAGEngine:
                 "status": "processed",
                 "chunks_created": len(chunks_data),
                 "processing_time": processing_time,
-                "document_id": doc_id
+                "document_id": doc_id,
+                "vectors_stored": vectors_stored  # CRITICAL FIX: Return actual vector count
             }
             
         except Exception as e:
@@ -288,26 +329,31 @@ class RAGEngine:
             if document_url:
                 query_filter["document_url"] = document_url
             
-            # Query Pinecone
+            # Query Pinecone with SPEED OPTIMIZATIONS
             query_results = self.pinecone_index.query(
                 vector=question_embedding.tolist(),
-                top_k=TOP_K_RETRIEVAL,
+                top_k=2,  # REDUCED from 3 to 2 for faster processing
                 include_metadata=True,
                 filter=query_filter if query_filter else None
             )
             
-            # Process results
+            # Process results with SPEED-FIRST approach
             context_chunks = []
             citations = []
             
             for match in query_results['matches']:
                 metadata = match['metadata']
                 
-                context_chunks.append(metadata['content'])
+                # SPEED OPTIMIZATION: Limit chunk size to prevent slow LLM responses
+                chunk_content = metadata['content']
+                if len(chunk_content) > 500:  # Limit chunk size for speed
+                    chunk_content = chunk_content[:500] + "..."
+                
+                context_chunks.append(chunk_content)
                 
                 # Create detailed citation
                 citation = {
-                    "text": metadata['content'][:200] + "..." if len(metadata['content']) > 200 else metadata['content'],
+                    "text": chunk_content[:200] + "..." if len(chunk_content) > 200 else chunk_content,
                     "source": metadata.get('document_url', 'Unknown'),
                     "chunk_index": metadata.get('chunk_index', 0),
                     "similarity_score": float(match['score']),
@@ -323,8 +369,8 @@ class RAGEngine:
                 
                 citations.append(citation)
             
-            # Combine context with length optimization
-            combined_context = self._optimize_context_length(context_chunks)
+            # SPEED OPTIMIZATION: Aggressive context length limits
+            combined_context = self._optimize_context_for_speed(context_chunks)
             
             return combined_context, citations
             
@@ -354,6 +400,27 @@ class RAGEngine:
             result += "\n\n[Additional context truncated due to length limits...]"
         
         return result
+    
+    def _optimize_context_for_speed(self, context_chunks: List[str]) -> str:
+        """SPEED-FIRST context optimization for sub-30s response times."""
+        # AGGRESSIVE limits for maximum speed
+        MAX_SPEED_CONTEXT = 1000  # Much smaller than normal for speed
+        
+        if not context_chunks:
+            return ""
+        
+        # Take only the MOST relevant chunk for maximum speed
+        if len(context_chunks) > 1:
+            # Keep only the first (most relevant) chunk
+            context_chunks = context_chunks[:1]
+        
+        combined = "\n\n".join(context_chunks)
+        
+        # Aggressive truncation for speed
+        if len(combined) > MAX_SPEED_CONTEXT:
+            combined = combined[:MAX_SPEED_CONTEXT] + "\n\n[TRUNCATED FOR SPEED OPTIMIZATION]"
+        
+        return combined
     
     async def _fallback_retrieval(self, question: str, document_url: str = "") -> Tuple[str, List[Dict]]:
         """Fallback retrieval method when Pinecone is not available."""

@@ -233,15 +233,23 @@ If no relevant information is found, respond with:
             raise Exception(f"OpenAI API error: {e}")
     
     async def get_answer_from_google(self, prompt: str) -> Dict:
-        """Get response from Google Gemini."""
+        """Get response from Google Gemini with SPEED OPTIMIZATIONS."""
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-1.5-flash')  # CRITICAL: Must be this model
             
+            # CRITICAL OPTIMIZATION: Truncate excessive context for faster responses
+            if len(prompt) > 3000:  # Max reasonable context for speed
+                print(f"⚡ Truncating prompt from {len(prompt)} to 3000 chars for speed")
+                prompt = prompt[:3000] + "\n\n[CONTEXT TRUNCATED FOR PERFORMANCE - see full context in system logs]"
+            
+            # ASYNC call with SPEED-OPTIMIZED configuration
             response = await model.generate_content_async(
                 prompt,
                 generation_config=genai.types.GenerationConfig(
-                    temperature=0.1,
-                    max_output_tokens=1500,
+                    temperature=0.2,  # Lower for faster generation
+                    top_p=0.8,       # Focused sampling for speed
+                    max_output_tokens=512,  # Limit output length for speed
+                    candidate_count=1  # Single candidate for speed
                 )
             )
             
