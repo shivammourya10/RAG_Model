@@ -30,7 +30,7 @@ import json
 from typing import List, Dict, Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, APIRouter
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -137,6 +137,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# =============================================================================
+# API Router Setup with Versioning
+# =============================================================================
+
+# Create API v1 router
+api_v1_router = APIRouter(prefix="/api/v1", tags=["API v1"])
 
 # =============================================================================
 # Service Initialization (Singleton Pattern)
@@ -257,7 +263,7 @@ async def health_check():
         )
 
 
-@app.post("/hackrx/run", response_model=HackRxResponse)
+@api_v1_router.post("/hackrx/run", response_model=HackRxResponse)
 async def hackrx_evaluation_endpoint(
     request: HackRxRequest, 
     authorized: bool = Depends(verify_token)
@@ -433,7 +439,7 @@ async def hackrx_evaluation_endpoint(
         )
 
 
-@app.get("/stats")
+@api_v1_router.get("/stats")
 async def get_system_stats(authorized: bool = Depends(verify_token)):
     """
     Get system statistics and performance metrics.
@@ -460,7 +466,7 @@ async def get_system_stats(authorized: bool = Depends(verify_token)):
         )
 
 
-@app.post("/reset-system")
+@api_v1_router.post("/reset-system")
 async def reset_system(authorized: bool = Depends(verify_token)):
     """Reset system by clearing all database data for fresh processing demonstration."""
     try:
@@ -513,6 +519,14 @@ async def not_found_handler(request, exc):
             "available_endpoints": ["/", "/health", "/hackrx/run", "/stats", "/docs"]
         }
     )
+
+
+# =============================================================================
+# Register API Router
+# =============================================================================
+
+# Include the API v1 router
+app.include_router(api_v1_router)
 
 
 @app.exception_handler(500)

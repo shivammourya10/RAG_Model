@@ -148,82 +148,66 @@ class LLMClient:
             print(f"⚠️ LLM client setup failed: {e}")
     
     def create_enhanced_prompt(self, question: str, context: str, document_metadata: Dict) -> str:
-        """Creates a SPEED-OPTIMIZED prompt for fast answers with citations and clauses."""
+        """Creates a SPEED-OPTIMIZED prompt for clean, direct answers."""
         
         # SPEED OPTIMIZATION: Aggressive context truncation for faster processing
         max_context_chars = 1200  # Optimal for Gemini-1.5-Flash speed
         if len(context) > max_context_chars:
             context = context[:max_context_chars] + "..."
         
-        # SPEED-OPTIMIZED prompt - minimal but effective
-        prompt = f"""Analyze document and answer question. Return ONLY valid JSON.
+        # CLEAN ANSWER prompt - just return the direct answer
+        prompt = f"""Answer the question based on the document context. Return ONLY the direct answer as plain text.
 
-SOURCE: {document_metadata.get('source_url', 'doc')}
-TYPE: {document_metadata.get('document_type', 'document')}
-
-CONTEXT:
+DOCUMENT CONTEXT:
 {context}
 
 QUESTION: {question}
 
-Return only this JSON format:
-{{"answer": "brief answer", "source": "exact quote from context", "clause": "clause/section number if mentioned", "confidence": "high/medium/low"}}"""
+Instructions:
+- Provide a clear, direct answer
+- Include specific details like numbers, timeframes, and conditions
+- Do not include JSON formatting or metadata
+- Answer should be 1-3 sentences maximum for clarity"""
 
         return prompt
     
     async def get_answer_from_openai(self, prompt: str) -> Dict:
-        """Get response from OpenAI GPT-4."""
+        """Get clean text response from OpenAI GPT-4."""
         try:
             response = await self.openai_client.chat.completions.create(  # type: ignore
                 model="gpt-4",
                 messages=[
                     {
                         "role": "system", 
-                        "content": "You are an expert document analysis assistant specializing in insurance, legal, HR, and compliance domains. Always provide detailed, accurate responses with proper citations."
+                        "content": "You are an expert document analysis assistant. Provide clear, direct answers without extra formatting or metadata."
                     },
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.1,
-                max_tokens=1500,
-                response_format={"type": "json_object"}
+                max_tokens=200
             )
             
-            content = response.choices[0].message.content
+            content = response.choices[0].message.content.strip()
             tokens_used = response.usage.total_tokens if hasattr(response, 'usage') else 0
             
-            try:
-                parsed_response = json.loads(content)
-                return {
-                    "response": parsed_response,
-                    "tokens_used": tokens_used,
-                    "model": "gpt-4"
-                }
-            except json.JSONDecodeError:
-                # Fallback if JSON parsing fails
-                return {
-                    "response": {
-                        "answer": content,
-                        "reasoning": "Response generated but JSON parsing failed",
-                        "citations": [],
-                        "confidence": "medium",
-                        "domain_specific_notes": "Technical parsing issue encountered"
-                    },
-                    "tokens_used": tokens_used,
-                    "model": "gpt-4"
-                }
+            return {
+                "response": content,  # Return clean text directly
+                "tokens_used": tokens_used,
+                "model": "gpt-4-clean"
+            }
                 
         except Exception as e:
             raise Exception(f"OpenAI API error: {e}")
     
     async def get_answer_from_google(self, prompt: str) -> Dict:
-        """ULTRA-FAST Google Gemini-1.5-Flash with aggressive speed optimizations."""
+        """ULTRA-FAST Google Gemini-1.5-Flash optimized for clean text responses."""
         try:
             # SPEED CRITICAL: Use fastest model with optimal config
             model = genai.GenerativeModel('gemini-1.5-flash')  # type: ignore
             
-            # EXTREME SPEED OPTIMIZATION: Ultra-short prompt for sub-second response
+            # SPEED OPTIMIZATION: Truncate if needed for maximum speed
             if len(prompt) > 800:  # More aggressive truncation for maximum speed
-                prompt = prompt[:800] + "\n\nAnswer briefly in JSON format."
+                prompt = prompt[:800] + "\n\nAnswer briefly and directly."
             
             # PRODUCTION SPEED CONFIG: Minimized settings for fastest response
             response = await model.generate_content_async(
@@ -232,62 +216,32 @@ Return only this JSON format:
                     temperature=0.0,      # Zero temperature for fastest generation
                     top_p=0.5,           # Reduced for speed
                     top_k=1,             # Most restrictive for speed
-                    max_output_tokens=150, # Even shorter responses for speed
+                    max_output_tokens=200, # Reasonable length for clean answers
                     candidate_count=1,    # Single candidate
-                    stop_sequences=["}"] # Stop at JSON end for speed
                 ),
                 request_options={
                     "timeout": 10  # 10 second timeout to force faster responses
                 }
             )
             
-            content = response.text
+            content = response.text.strip()
             
-            # Handle incomplete JSON due to stop sequence
-            if not content.endswith("}"):
-                content += "}"
+            # Clean up any unwanted formatting
+            content = content.replace("```", "").replace("json", "").strip()
             
-            try:
-                parsed_response = json.loads(content)
-                return {
-                    "response": parsed_response,
-                    "tokens_used": len(content) // 4,
-                    "model": "gemini-1.5-flash-ultra-fast"
-                }
-            except json.JSONDecodeError:
-                # Try to extract JSON from markdown-wrapped content
-                import re
-                json_match = re.search(r'```json\s*(\{.*?\})\s*```', content, re.DOTALL)
-                if json_match:
-                    try:
-                        parsed_response = json.loads(json_match.group(1))
-                        return {
-                            "response": parsed_response,
-                            "tokens_used": len(content) // 4,
-                            "model": "gemini-1.5-flash-extracted"
-                        }
-                    except json.JSONDecodeError:
-                        pass
-                
-                # SPEED FALLBACK: Minimal processing
-                return {
-                    "response": {
-                        "answer": content.strip(),
-                        "source": "",
-                        "clause": "",
-                        "confidence": "medium"
-                    },
-                    "tokens_used": len(content) // 4,
-                    "model": "gemini-1.5-flash-fallback"
-                }
+            return {
+                "response": content,  # Return clean text directly
+                "tokens_used": len(content) // 4,
+                "model": "gemini-1.5-flash-clean"
+            }
                 
         except Exception as e:
             raise Exception(f"Gemini Flash API error: {e}")
     
     async def get_enhanced_answer(self, question: str, context: str, document_metadata: Dict) -> Tuple[str, Dict]:
         """
-        SPEED-OPTIMIZED answer generation with citations and clauses.
-        Returns (simple_answer, detailed_response)
+        SPEED-OPTIMIZED answer generation returning clean answers only.
+        Returns (clean_answer, performance_metadata)
         """
         start_time = time.time()
         
@@ -306,39 +260,26 @@ Return only this JSON format:
             
             response_time = time.time() - start_time
             
-            # Extract components from speed-optimized response
-            response_data = result["response"]
-            simple_answer = response_data.get("answer", "Error generating response")
+            # Extract clean answer (now just text, not JSON)
+            clean_answer = result["response"]
             
-            # Enhanced response with speed metrics
-            enhanced_response = {
-                "answer": simple_answer,
-                "source": response_data.get("source", ""),
-                "clause": response_data.get("clause", ""),
-                "confidence": response_data.get("confidence", "medium"),
-                "performance_metrics": {
-                    "response_time": response_time,
-                    "tokens_used": result.get("tokens_used", 0),
-                    "model_used": result.get("model", "gemini-1.5-flash"),
-                    "speed_optimization": "enabled"
-                }
+            # Performance metadata (not returned to user but useful for monitoring)
+            performance_metadata = {
+                "response_time": response_time,
+                "tokens_used": result.get("tokens_used", 0),
+                "model_used": result.get("model", "gemini-1.5-flash"),
+                "speed_optimization": "enabled"
             }
             
-            return simple_answer, enhanced_response
+            return clean_answer, performance_metadata
             
         except Exception as e:
             response_time = time.time() - start_time
             error_response = {
-                "answer": f"Error: {str(e)}",
-                "source": "",
-                "clause": "",
-                "confidence": "low",
-                "performance_metrics": {
-                    "response_time": response_time,
-                    "tokens_used": 0,
-                    "model_used": self.config.llm_provider,
-                    "error": str(e)
-                }
+                "response_time": response_time,
+                "tokens_used": 0,
+                "model_used": self.config.llm_provider,
+                "error": str(e)
             }
             
             return f"Error: {str(e)}", error_response
