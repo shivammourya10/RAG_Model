@@ -1,5 +1,6 @@
 # Render.com deployment configuration
 # Production-ready settings for RAG Model deployment
+# FORCE RENDER TO USE THIS FILE - BUILD 3
 
 services:
   - type: web
