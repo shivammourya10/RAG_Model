@@ -22,5 +22,13 @@ numpy>=1.26.0,<1.27.0
 
 # Document processing (minimal)
 python-multipart
+pypdf>=5.8.0
+python-docx>=1.2.0
+beautifulsoup4>=4.13.0
 
-# Try without scipy, scikit-learn, tokenizers to avoid ALL compilation
+# LLM integration - binary wheels
+google-generativeai>=0.8.0
+openai>=1.97.0
+
+# Essential for RAG functionality
+requests>=2.32.0
