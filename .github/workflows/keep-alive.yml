@@ -16,7 +16,7 @@ jobs:
         echo "🚀 Pinging RAG Model service to keep it alive..."
         
         # Replace with your actual Render service URL
-        SERVICE_URL="https://YOUR_ACTUAL_RENDER_URL_HERE.onrender.com"
+        SERVICE_URL="https://rag-model-l2im.onrender.com"
         HEALTH_URL="${SERVICE_URL}/health"
         
         response=$(curl -s -w "HTTPSTATUS:%{http_code};TIME:%{time_total}" "$HEALTH_URL")
