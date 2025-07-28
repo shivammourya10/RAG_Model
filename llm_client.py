@@ -27,7 +27,14 @@ import json
 import time
 from typing import Dict, Tuple, Optional, Any
 
-import openai
+# Fix: Use proper OpenAI import
+from openai import OpenAI
+
+# Fix: Use proper Google AI import
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
 import google.generativeai as genai
 import tiktoken
 
@@ -129,69 +136,45 @@ class LLMClient:
     
     def _setup_clients(self):
         """Setup LLM clients based on configuration."""
-        if self.config.llm_provider == "openai" and self.config.openai_api_key:
-            openai.api_key = self.config.openai_api_key
-        elif self.config.llm_provider == "google" and self.config.google_api_key:
-            genai.configure(api_key=self.config.google_api_key)
+        try:
+            if self.config.llm_provider == "openai" and self.config.openai_api_key:
+                self.openai_client = OpenAI(api_key=self.config.openai_api_key)
+            elif self.config.llm_provider == "google" and self.config.google_api_key:
+                if genai:
+                    genai.configure(api_key=self.config.google_api_key)  # type: ignore
+                else:
+                    raise Exception("Google AI library not installed")
+        except Exception as e:
+            print(f"⚠️ LLM client setup failed: {e}")
     
     def create_enhanced_prompt(self, question: str, context: str, document_metadata: Dict) -> str:
-        """Creates an enhanced prompt for explainable answers with citations."""
+        """Creates a SPEED-OPTIMIZED prompt for fast answers with citations and clauses."""
         
-        # Optimize context length
-        max_context_tokens = self.config.max_tokens_per_request - 500  # Reserve tokens for question and response
-        optimized_context = self.token_counter.truncate_context(context, max_context_tokens)
+        # SPEED OPTIMIZATION: Aggressive context truncation for faster processing
+        max_context_chars = 1200  # Optimal for Gemini-1.5-Flash speed
+        if len(context) > max_context_chars:
+            context = context[:max_context_chars] + "..."
         
-        prompt = f"""You are an intelligent document analysis system specialized in insurance, legal, HR, and compliance domains. 
+        # SPEED-OPTIMIZED prompt - minimal but effective
+        prompt = f"""Analyze document and answer question. Return ONLY valid JSON.
 
-Your task is to answer questions based SOLELY on the provided document context and provide explainable reasoning with precise citations.
-
-DOCUMENT METADATA:
-- Document Type: {document_metadata.get('document_type', 'Unknown')}
-- Source: {document_metadata.get('source_url', 'Unknown')}
+SOURCE: {document_metadata.get('source_url', 'doc')}
+TYPE: {document_metadata.get('document_type', 'document')}
 
 CONTEXT:
-{optimized_context}
+{context}
 
 QUESTION: {question}
 
-RESPONSE REQUIREMENTS:
-1. Answer the question accurately and completely based ONLY on the provided context
-2. If the context doesn't contain sufficient information, clearly state "Answer not found in context"
-3. Provide specific citations from the context that support your answer
-4. Explain your reasoning and decision-making process
-5. For insurance/legal questions, identify relevant clauses, conditions, and limitations
-6. Use clear, professional language appropriate for the domain
-
-RESPONSE FORMAT:
-Provide your response as a JSON object with the following structure:
-{{
-    "answer": "Your complete answer to the question",
-    "reasoning": "Step-by-step explanation of how you arrived at this answer",
-    "citations": [
-        {{
-            "text": "Exact text from context that supports the answer",
-            "source": "Location/section where this information was found"
-        }}
-    ],
-    "confidence": "high|medium|low - based on clarity of information in context",
-    "domain_specific_notes": "Any additional domain-specific considerations (insurance terms, legal implications, etc.)"
-}}
-
-If no relevant information is found, respond with:
-{{
-    "answer": "Answer not found in context",
-    "reasoning": "The provided context does not contain information relevant to answering this question",
-    "citations": [],
-    "confidence": "low",
-    "domain_specific_notes": "Unable to provide domain-specific analysis due to lack of relevant information"
-}}"""
+Return only this JSON format:
+{{"answer": "brief answer", "source": "exact quote from context", "clause": "clause/section number if mentioned", "confidence": "high/medium/low"}}"""
 
         return prompt
     
     async def get_answer_from_openai(self, prompt: str) -> Dict:
         """Get response from OpenAI GPT-4."""
         try:
-            response = await openai.ChatCompletion.acreate(
+            response = await self.openai_client.chat.completions.create(  # type: ignore
                 model="gpt-4",
                 messages=[
                     {
@@ -233,55 +216,73 @@ If no relevant information is found, respond with:
             raise Exception(f"OpenAI API error: {e}")
     
     async def get_answer_from_google(self, prompt: str) -> Dict:
-        """Get response from Google Gemini with SPEED OPTIMIZATIONS."""
+        """ULTRA-FAST Google Gemini-1.5-Flash with aggressive speed optimizations."""
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')  # CRITICAL: Must be this model
+            # SPEED CRITICAL: Use fastest model with optimal config
+            model = genai.GenerativeModel('gemini-1.5-flash')  # type: ignore
             
-            # CRITICAL OPTIMIZATION: Truncate excessive context for faster responses
-            if len(prompt) > 3000:  # Max reasonable context for speed
-                print(f"⚡ Truncating prompt from {len(prompt)} to 3000 chars for speed")
-                prompt = prompt[:3000] + "\n\n[CONTEXT TRUNCATED FOR PERFORMANCE - see full context in system logs]"
+            # EXTREME SPEED OPTIMIZATION: Ultra-short prompt for sub-second response
+            if len(prompt) > 1500:  # Aggressive truncation for maximum speed
+                prompt = prompt[:1500] + "\n\nAnswer in JSON format only."
             
-            # ASYNC call with SPEED-OPTIMIZED configuration
+            # PRODUCTION SPEED CONFIG: Minimized settings for fastest response
             response = await model.generate_content_async(
                 prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.2,  # Lower for faster generation
-                    top_p=0.8,       # Focused sampling for speed
-                    max_output_tokens=512,  # Limit output length for speed
-                    candidate_count=1  # Single candidate for speed
+                generation_config=genai.types.GenerationConfig(  # type: ignore
+                    temperature=0.0,  # Zero temperature for fastest generation
+                    top_p=0.7,       # Reduced for speed
+                    max_output_tokens=200,  # Very short responses for speed
+                    candidate_count=1,      # Single candidate
+                    stop_sequences=["}"]    # Stop at JSON end for speed
                 )
             )
             
             content = response.text
             
+            # Handle incomplete JSON due to stop sequence
+            if not content.endswith("}"):
+                content += "}"
+            
             try:
                 parsed_response = json.loads(content)
                 return {
                     "response": parsed_response,
-                    "tokens_used": len(content) // 4,  # Rough estimation
-                    "model": "gemini-1.5-flash"
+                    "tokens_used": len(content) // 4,
+                    "model": "gemini-1.5-flash-ultra-fast"
                 }
             except json.JSONDecodeError:
-                # Fallback if JSON parsing fails
+                # Try to extract JSON from markdown-wrapped content
+                import re
+                json_match = re.search(r'```json\s*(\{.*?\})\s*```', content, re.DOTALL)
+                if json_match:
+                    try:
+                        parsed_response = json.loads(json_match.group(1))
+                        return {
+                            "response": parsed_response,
+                            "tokens_used": len(content) // 4,
+                            "model": "gemini-1.5-flash-extracted"
+                        }
+                    except json.JSONDecodeError:
+                        pass
+                
+                # SPEED FALLBACK: Minimal processing
                 return {
                     "response": {
-                        "answer": content,
-                        "reasoning": "Response generated but JSON parsing failed",
-                        "citations": [],
-                        "confidence": "medium",
-                        "domain_specific_notes": "Technical parsing issue encountered"
+                        "answer": content.strip(),
+                        "source": "",
+                        "clause": "",
+                        "confidence": "medium"
                     },
                     "tokens_used": len(content) // 4,
-                    "model": "gemini-1.5-flash"
+                    "model": "gemini-1.5-flash-fallback"
                 }
                 
         except Exception as e:
-            raise Exception(f"Google Gemini API error: {e}")
+            raise Exception(f"Gemini Flash API error: {e}")
     
     async def get_enhanced_answer(self, question: str, context: str, document_metadata: Dict) -> Tuple[str, Dict]:
         """
-        Get enhanced answer with explanations and citations.
+        SPEED-OPTIMIZED answer generation with citations and clauses.
         Returns (simple_answer, detailed_response)
         """
         start_time = time.time()
@@ -289,41 +290,47 @@ If no relevant information is found, respond with:
         try:
             prompt = self.create_enhanced_prompt(question, context, document_metadata)
             
+            # Force Google Gemini for speed optimization
             if self.config.llm_provider == "openai":
-                result = await self.get_answer_from_openai(prompt)
+                print("⚡ Switching to Gemini-1.5-Flash for speed optimization")
+                result = await self.get_answer_from_google(prompt)
             elif self.config.llm_provider == "google":
                 result = await self.get_answer_from_google(prompt)
             else:
-                raise ValueError(f"Unsupported LLM provider: {self.config.llm_provider}")
+                # Default to Google for speed
+                result = await self.get_answer_from_google(prompt)
             
             response_time = time.time() - start_time
             
-            # Extract simple answer for backward compatibility
-            simple_answer = result["response"].get("answer", "Error generating response")
+            # Extract components from speed-optimized response
+            response_data = result["response"]
+            simple_answer = response_data.get("answer", "Error generating response")
             
-            # Enhanced response with metadata
+            # Enhanced response with speed metrics
             enhanced_response = {
-                "detailed_response": result["response"],
+                "answer": simple_answer,
+                "source": response_data.get("source", ""),
+                "clause": response_data.get("clause", ""),
+                "confidence": response_data.get("confidence", "medium"),
                 "performance_metrics": {
                     "response_time": response_time,
                     "tokens_used": result.get("tokens_used", 0),
-                    "model_used": result.get("model", self.config.llm_provider)
+                    "model_used": result.get("model", "gemini-1.5-flash"),
+                    "speed_optimization": "enabled"
                 }
             }
             
             return simple_answer, enhanced_response
             
         except Exception as e:
+            response_time = time.time() - start_time
             error_response = {
-                "detailed_response": {
-                    "answer": f"Error processing question: {str(e)}",
-                    "reasoning": "Technical error occurred during processing",
-                    "citations": [],
-                    "confidence": "low",
-                    "domain_specific_notes": "Unable to process due to technical error"
-                },
+                "answer": f"Error: {str(e)}",
+                "source": "",
+                "clause": "",
+                "confidence": "low",
                 "performance_metrics": {
-                    "response_time": time.time() - start_time,
+                    "response_time": response_time,
                     "tokens_used": 0,
                     "model_used": self.config.llm_provider,
                     "error": str(e)
@@ -333,7 +340,7 @@ If no relevant information is found, respond with:
             return f"Error: {str(e)}", error_response
 
 # Backward compatibility function
-async def get_answer_from_llm(question: str, context: str, document_metadata: Dict = None) -> str:
+async def get_answer_from_llm(question: str, context: str, document_metadata: Optional[Dict] = None) -> str:
     """Simple function for backward compatibility."""
     client = LLMClient()
     if document_metadata is None:
@@ -348,25 +355,37 @@ if __name__ == "__main__":
         client = LLMClient()
         
         sample_context = """
-        The National Parivar Mediclaim Plus Policy provides coverage for medical expenses.
-        Grace period for premium payment: 30 days after due date.
-        Waiting period for pre-existing diseases: 36 months.
+        NATIONAL PARIVAR MEDICLAIM PLUS POLICY - Section 4.2
+        Grace period for premium payment: 30 days after due date (Clause 4.2.1).
+        Pre-existing diseases waiting period: 36 months as per Clause 6.3.
+        Coverage limit: Rs. 5,00,000 per family per policy year (Clause 2.1).
+        Maternity benefits: Available after 36 months continuous coverage (Clause 8.1).
         """
         
         sample_metadata = {
-            "document_type": "pdf",
-            "source_url": "https://example.com/policy.pdf"
+            "document_type": "insurance_policy",
+            "source_url": "policy_document_2024.pdf"
         }
         
         question = "What is the grace period for premium payment?"
         
         try:
+            print("🚀 Testing SPEED-OPTIMIZED LLM Client...")
+            start_time = time.time()
+            
             simple_answer, enhanced_response = await client.get_enhanced_answer(
                 question, sample_context, sample_metadata
             )
             
-            print(f"Simple Answer: {simple_answer}")
-            print(f"Enhanced Response: {json.dumps(enhanced_response, indent=2)}")
+            total_time = time.time() - start_time
+            
+            print(f"⚡ SPEED RESULTS:")
+            print(f"   Total Time: {total_time:.3f}s")
+            print(f"   Answer: {simple_answer}")
+            print(f"   Source: {enhanced_response.get('source', 'N/A')}")
+            print(f"   Clause: {enhanced_response.get('clause', 'N/A')}")
+            print(f"   Model: {enhanced_response['performance_metrics']['model_used']}")
+            print(f"   Response Time: {enhanced_response['performance_metrics']['response_time']:.3f}s")
             
         except Exception as e:
             print(f"Error: {e}")

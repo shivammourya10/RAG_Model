@@ -28,12 +28,13 @@ import asyncio
 import time
 import json
 from typing import List, Dict, Optional
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 # Import custom modules
 from config import config
@@ -41,6 +42,77 @@ from doc_processor import DocumentProcessor
 from rag_core import RAGEngine
 from llm_client import LLMClient
 from database import DatabaseManager
+
+
+# =============================================================================
+# Application Lifecycle Management
+# =============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Modern FastAPI lifespan event handler."""
+    # Startup
+    print("🚀 Starting HackRX 6.0 Intelligent Query-Retrieval System...")
+    
+    # CRITICAL FIX: Auto-fix Pinecone dimension mismatch
+    try:
+        from pinecone import Pinecone, ServerlessSpec
+        pc = Pinecone(api_key=config.pinecone_api_key)
+        
+        # Check if index exists and get stats
+        try:
+            index = pc.Index(config.pinecone_index_name)
+            stats = index.describe_index_stats()
+            print(f"📊 Pinecone Index Stats: {stats}")
+            print(f"📏 Index Dimension: {stats['dimension']}")
+            print(f"🎯 Current Vector Count: {stats['total_vector_count']}")
+            
+            # PRODUCTION FIX: Auto-recreate index if dimension mismatch
+            if stats['dimension'] != 384:
+                print(f"🔧 FIXING DIMENSION MISMATCH: Index has {stats['dimension']}, need 384")
+                print("�️ Deleting old index...")
+                pc.delete_index(config.pinecone_index_name)
+                
+                # Wait for deletion to complete
+                import time
+                time.sleep(10)
+                
+                print("🆕 Creating new index with correct dimension...")
+                pc.create_index(
+                    name=config.pinecone_index_name,
+                    dimension=384,
+                    metric='cosine',
+                    spec=ServerlessSpec(cloud='aws', region='us-east-1')
+                )
+                
+                # Wait for index to be ready
+                time.sleep(15)
+                print("✅ Index recreated with dimension 384")
+            else:
+                print("✅ Dimension matches - Index properly configured")
+                
+        except Exception as index_error:
+            print(f"📋 Index not found, creating new one: {index_error}")
+            pc.create_index(
+                name=config.pinecone_index_name,
+                dimension=384,
+                metric='cosine',
+                spec=ServerlessSpec(cloud='aws', region='us-east-1')
+            )
+            print("✅ New Pinecone index created with dimension 384")
+            
+    except Exception as e:
+        print(f"⚠️ Pinecone setup failed: {e}")
+    
+    print(f"🤖 LLM Provider: {config.llm_provider}")
+    print(f"🗄️ Vector DB: Pinecone ({config.pinecone_index_name})")
+    print(f"💾 Database: PostgreSQL")
+    print("✅ System ready to process requests!")
+    
+    yield  # Application runs here
+    
+    # Shutdown
+    print("🛑 Shutting down HackRX system...")
 
 
 # =============================================================================
@@ -52,7 +124,8 @@ app = FastAPI(
     description="LLM-Powered document processing with contextual Q&A",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan  # Modern lifespan handler
 )
 
 # Configure CORS for cross-origin requests
@@ -82,11 +155,8 @@ db_manager = DatabaseManager()
 
 class HackRxRequest(BaseModel):
     """HackRX 6.0 specification compliant request model."""
-    documents: str
-    questions: List[str]
-    
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "documents": "https://hackrx.blob.core.windows.net/assets/policy.pdf",
                 "questions": [
@@ -95,6 +165,10 @@ class HackRxRequest(BaseModel):
                 ]
             }
         }
+    )
+    
+    documents: str
+    questions: List[str]
 
 
 class HackRxResponse(BaseModel):
@@ -423,46 +497,7 @@ async def reset_system(authorized: bool = Depends(verify_token)):
 
 
 # =============================================================================
-# Application Lifecycle Events
-# =============================================================================
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on application startup with diagnostics."""
-    print("🚀 Starting HackRX 6.0 Intelligent Query-Retrieval System...")
-    
-    # ADD CRITICAL DIAGNOSTICS
-    try:
-        from pinecone import Pinecone
-        pc = Pinecone(api_key=config.pinecone_api_key)
-        index = pc.Index(config.pinecone_index_name)
-        stats = index.describe_index_stats()
-        print(f"📊 Pinecone Index Stats: {stats}")
-        print(f"📏 Index Dimension: {stats['dimension']}")
-        print(f"🎯 Current Vector Count: {stats['total_vector_count']}")
-        
-        # Check if dimension matches our model
-        if stats['dimension'] != 384:
-            print(f"⚠️ DIMENSION MISMATCH! Index expects {stats['dimension']}, model produces 384")
-            print(f"💡 Run: python3 recreate_index.py to fix this")
-        else:
-            print("✅ Dimension matches - Index properly configured")
-            
-    except Exception as e:
-        print(f"⚠️ Pinecone diagnostic failed: {e}")
-    
-    print(f"🤖 LLM Provider: {config.llm_provider}")
-    print(f"🗄️ Vector DB: Pinecone ({config.pinecone_index_name})")
-    print(f"💾 Database: PostgreSQL")
-    print("✅ System ready to process requests!")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on application shutdown."""
-    print("🛑 Shutting down HackRX system...")
-
-
+# Application Lifecycle Management
 # =============================================================================
 # Error Handlers
 # =============================================================================

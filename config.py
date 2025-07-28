@@ -97,12 +97,12 @@ class Config:
     db_max_overflow: int = int(os.getenv("DB_MAX_OVERFLOW", "10"))
     
     # =============================================================================
-    # Document Processing Configuration
+    # Document Processing Configuration - MAXIMUM SPEED OPTIMIZATION
     # =============================================================================
     
-    # Text chunking parameters - AGGRESSIVE SPEED OPTIMIZATION
-    chunk_size: int = int(os.getenv("CHUNK_SIZE", "2000"))  # Increased from 1500 to 2000
-    chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "100"))  # Reduced from 150 to 100
+    # Text chunking parameters - SPEED OPTIMIZED (fewer, larger chunks)
+    chunk_size: int = int(os.getenv("CHUNK_SIZE", "4000"))
+    chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "25"))
     
     # Supported document formats
     supported_formats: list = ["pdf", "docx", "eml", "msg", "mbox"]
@@ -112,15 +112,15 @@ class Config:
     max_pages_per_document: int = int(os.getenv("MAX_PAGES_PER_DOCUMENT", "500"))
     
     # =============================================================================
-    # RAG Performance Configuration
+    # RAG Performance Configuration - SPEED OPTIMIZED
     # =============================================================================
     
-    # Retrieval parameters - OPTIMIZED FOR SPEED
-    top_k_retrieval: int = int(os.getenv("TOP_K_RETRIEVAL", "3"))  # Reduced from 5 for faster processing
+    # Retrieval parameters - OPTIMIZED FOR <15s RESPONSE
+    top_k_retrieval: int = int(os.getenv("TOP_K_RETRIEVAL", "3"))
     similarity_threshold: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.7"))
     
     # Context management - OPTIMIZED FOR SPEED
-    max_context_length: int = int(os.getenv("MAX_CONTEXT_LENGTH", "2500"))  # Reduced from 4000 for faster processing
+    max_context_length: int = int(os.getenv("MAX_CONTEXT_LENGTH", "2500"))
     context_compression_enabled: bool = os.getenv("CONTEXT_COMPRESSION", "true").lower() == "true"
     
     # =============================================================================
@@ -131,27 +131,30 @@ class Config:
     max_tokens_per_request: int = int(os.getenv("MAX_TOKENS_PER_REQUEST", "2000"))
     enable_token_counting: bool = os.getenv("ENABLE_TOKEN_COUNTING", "true").lower() == "true"
     
-    # Cost optimization
-    enable_caching: bool = os.getenv("ENABLE_CACHING", "true").lower() == "true"
-    cache_ttl_hours: int = int(os.getenv("CACHE_TTL_HOURS", "24"))
+    # Caching optimization - IMPORTANT: Caching ONLY helps repeat queries
+    # It does NOT improve first-run speed and can add slight overhead
+    # Disabled by default for optimal first-response performance
+    enable_caching: bool = os.getenv("ENABLE_CACHING", "false").lower() == "true"
+    cache_ttl_hours: int = int(os.getenv("CACHE_TTL_HOURS", "1"))
     
     # =============================================================================
-    # Performance & Concurrency Configuration
+    # Performance & Concurrency Configuration - SPEED OPTIMIZED
     # =============================================================================
     
-    # Concurrent processing
-    max_concurrent_questions: int = int(os.getenv("MAX_CONCURRENT_QUESTIONS", "10"))
-    request_timeout_seconds: int = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "30"))
+    # Concurrent processing - Reduced for better individual response times
+    max_concurrent_questions: int = int(os.getenv("MAX_CONCURRENT_QUESTIONS", "5"))
+    request_timeout_seconds: int = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "15"))
     
-    # Rate limiting
-    rate_limit_requests_per_minute: int = int(os.getenv("RATE_LIMIT_RPM", "100"))
+    # Rate limiting - Increased for better throughput
+    rate_limit_requests_per_minute: int = int(os.getenv("RATE_LIMIT_RPM", "200"))
     
     # =============================================================================
-    # Logging & Monitoring Configuration
+    # Logging & Monitoring Configuration - MINIMAL FOR SPEED
     # =============================================================================
     
-    log_level: str = os.getenv("LOG_LEVEL", "INFO")
-    enable_query_logging: bool = os.getenv("ENABLE_QUERY_LOGGING", "true").lower() == "true"
+    # Reduced logging for better performance
+    log_level: str = os.getenv("LOG_LEVEL", "WARNING")  # Less verbose for speed
+    enable_query_logging: bool = os.getenv("ENABLE_QUERY_LOGGING", "false").lower() == "true"  # Disabled for speed
     enable_performance_metrics: bool = os.getenv("ENABLE_PERFORMANCE_METRICS", "true").lower() == "true"
     
     # =============================================================================
