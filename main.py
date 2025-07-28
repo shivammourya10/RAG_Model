@@ -533,12 +533,29 @@ async def internal_error_handler(request, exc):
 
 if __name__ == "__main__":
     import uvicorn
+    import os
     
-    # Run development server
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
-    )
+    # Get port from environment (Render sets this)
+    port = int(os.environ.get("PORT", 8000))
+    host = os.environ.get("HOST", "0.0.0.0")
+    
+    # Production vs Development settings
+    if os.environ.get("RAG_RENDER_MODE", "false").lower() == "true":
+        # Production settings for Render
+        uvicorn.run(
+            "main:app",
+            host=host,
+            port=port,
+            workers=1,
+            timeout_keep_alive=30,
+            log_level="info"
+        )
+    else:
+        # Development settings
+        uvicorn.run(
+            "main:app",
+            host=host,
+            port=port,
+            reload=True,
+            log_level="info"
+        )

@@ -4,35 +4,40 @@
 services:
   - type: web
     name: rag-model-api
-    runtime: python3
+    env: python
+    plan: starter
+    region: oregon
+    branch: main
     buildCommand: |
-      # Install dependencies with specific PyTorch for CPU
-      pip install --upgrade pip
+      # Render-optimized build process
+      pip install --upgrade pip setuptools wheel
       pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
       pip install -r requirements.txt
       
-      # Pre-download models to avoid cold start issues
+      # Create cache directories
+      mkdir -p /tmp/huggingface_cache /tmp/torch_cache
+      
+      # Pre-download models during build (faster startup)
       python -c "
       import os
       os.environ['RAG_RENDER_MODE'] = 'true'
-      os.environ['RAG_PRELOAD_MODELS'] = 'true'
-      from model_cache import ModelCache
-      ModelCache.get_embedder('all-MiniLM-L6-v2')
-      print('✅ Models pre-downloaded for production')
+      os.environ['HF_HOME'] = '/tmp/huggingface_cache'
+      os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+      os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+      try:
+          from model_cache import ModelCache
+          ModelCache.get_embedder('all-MiniLM-L6-v2')
+          print('✅ Models pre-downloaded successfully')
+      except Exception as e:
+          print(f'⚠️ Model pre-download failed: {e}')
+          print('Models will download on first request')
       "
     
-    startCommand: |
-      # Set production environment variables
-      export RAG_RENDER_MODE=true
-      export RAG_FAST_STARTUP=true
-      export RAG_PRELOAD_MODELS=true
-      export PYTORCH_ENABLE_MPS_FALLBACK=1
-      export TOKENIZERS_PARALLELISM=false
-      
-      # Start the application
-      python main.py
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1 --timeout-keep-alive 30
     
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
       - key: RAG_RENDER_MODE
         value: "true"
       - key: RAG_FAST_STARTUP
@@ -43,16 +48,32 @@ services:
         value: "1"
       - key: TOKENIZERS_PARALLELISM
         value: "false"
-      - key: TRANSFORMERS_CACHE
-        value: "/tmp/transformers_cache"
       - key: HF_HOME
         value: "/tmp/huggingface_cache"
       - key: TORCH_HOME
         value: "/tmp/torch_cache"
+      - key: RAG_PRIMARY_STORAGE
+        value: "faiss"
+      - key: RAG_MEMORY_OPTIMIZATION
+        value: "true"
+      - key: MAX_CONTEXT_LENGTH
+        value: "800"
+      - key: CHUNK_SIZE
+        value: "4000"
+      - key: TOP_K_RETRIEVAL
+        value: "3"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"
+      - key: OMP_NUM_THREADS
+        value: "1"
+      - key: MKL_NUM_THREADS
+        value: "1"
+      - key: NUMEXPR_NUM_THREADS
+        value: "1"
+      - key: OPENBLAS_NUM_THREADS
+        value: "1"
       
-    # Resource allocation for stable performance
-    plan: standard  # Use at least standard plan for ML workloads
-    region: oregon  # Choose region closest to your users
-    
     # Health check configuration
     healthCheckPath: /health
