@@ -13,50 +13,9 @@ services:
     # Health check configuration - helps Render keep service alive
     healthCheckPath: /health
     
-    buildCommand: |
-      # Render-optimized build process - FORCE PRE-COMPILED WHEELS
-      pip install --upgrade pip setuptools wheel
-      
-      # Install PyTorch CPU-only first (most important)
-      pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
-      
-      # FORCE BINARY WHEELS to avoid compilation (Fortran, Rust, etc.)
-      echo "📦 Installing pre-compiled packages only..."
-      pip install --only-binary=all -r requirements.txt || {
-        echo "⚠️ Trying minimal requirements with binary wheels..."
-        pip install --only-binary=all -r requirements-minimal.txt
-      }
-      
-      # Verify core packages are installed
-      python -c "
-      try:
-          import torch, transformers, sentence_transformers, fastapi
-          print('✅ Core packages verified')
-      except ImportError as e:
-          print(f'❌ Missing core package: {e}')
-          exit(1)
-      "
-      
-      # Create cache directories
-      mkdir -p /tmp/huggingface_cache /tmp/torch_cache
-      
-      # Pre-download models during build (faster startup)
-      python -c "
-      import os
-      os.environ['RAG_RENDER_MODE'] = 'true'
-      os.environ['HF_HOME'] = '/tmp/huggingface_cache'
-      os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
-      os.environ['TOKENIZERS_PARALLELISM'] = 'false'
-      try:
-          from model_cache import ModelCache
-          ModelCache.get_embedder('all-MiniLM-L6-v2')
-          print('✅ Models pre-downloaded successfully')
-      except Exception as e:
-          print(f'⚠️ Model pre-download failed: {e}')
-          print('Models will download on first request')
-      "
+    buildCommand: "pip install --upgrade pip setuptools wheel && pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu && pip install --only-binary=all -r requirements.txt"
     
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1 --timeout-keep-alive 30
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1 --timeout-keep-alive 30"
     
     envVars:
       - key: PYTHON_VERSION
