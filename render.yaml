@@ -1,62 +1,17 @@
-# Render.com deployment configuration
-# Production-ready settings for RAG Model deployment
-# FORCE RENDER DETECTION - CLEAR MANUAL OVERRIDES FIRST
-
 services:
   - type: web
     name: rag-model-api
     env: python
-    plan: starter  # Upgrade to 'standard' to prevent spin-down
+    plan: starter
     region: oregon
     branch: main
-    autoDeploy: false  # Prevent unnecessary deploys during evaluation
-    
-    # Health check configuration - helps Render keep service alive
+    buildCommand: pip install --upgrade pip setuptools wheel && pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu && pip install --only-binary=all -r requirements-emergency.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1 --timeout-keep-alive 30
     healthCheckPath: /health
-    
-    buildCommand: "pip install --upgrade pip setuptools wheel && pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu && pip install --only-binary=all -r requirements-emergency.txt"
-    
-    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1 --timeout-keep-alive 30"
-    
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.12"
       - key: RAG_RENDER_MODE
-        value: "true"
-      - key: RAG_FAST_STARTUP
-        value: "true"
-      - key: RAG_PRELOAD_MODELS
         value: "true"
       - key: PYTORCH_ENABLE_MPS_FALLBACK
         value: "1"
       - key: TOKENIZERS_PARALLELISM
         value: "false"
-      - key: HF_HOME
-        value: "/tmp/huggingface_cache"
-      - key: TORCH_HOME
-        value: "/tmp/torch_cache"
-      - key: RAG_PRIMARY_STORAGE
-        value: "faiss"
-      - key: RAG_MEMORY_OPTIMIZATION
-        value: "true"
-      - key: MAX_CONTEXT_LENGTH
-        value: "800"
-      - key: CHUNK_SIZE
-        value: "4000"
-      - key: TOP_K_RETRIEVAL
-        value: "3"
-      - key: PYTHONUNBUFFERED
-        value: "1"
-      - key: PYTHONDONTWRITEBYTECODE
-        value: "1"
-      - key: OMP_NUM_THREADS
-        value: "1"
-      - key: MKL_NUM_THREADS
-        value: "1"
-      - key: NUMEXPR_NUM_THREADS
-        value: "1"
-      - key: OPENBLAS_NUM_THREADS
-        value: "1"
-      
-    # Health check configuration - keeps service responsive
-    healthCheckPath: /health
