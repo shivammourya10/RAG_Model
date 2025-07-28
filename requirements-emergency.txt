@@ -1,0 +1,26 @@
+# EMERGENCY RENDER REQUIREMENTS - NO COMPILATION NEEDED
+# Absolute minimal set for deployment - BINARY WHEELS ONLY
+
+# Core PyTorch (CPU-only) - guaranteed binary wheel
+torch==2.5.1
+
+# Essential for embeddings (might work without scipy)
+transformers==4.46.2
+sentence-transformers==3.2.1
+
+# FastAPI - guaranteed binary wheels
+fastapi==0.116.1
+uvicorn==0.35.0
+pydantic==2.11.7
+
+# Essential utilities - pure Python
+python-dotenv==1.1.1
+httpx==0.28.1
+
+# Only numpy (has binary wheels)
+numpy>=1.26.0,<1.27.0
+
+# Document processing (minimal)
+python-multipart
+
+# Try without scipy, scikit-learn, tokenizers to avoid ALL compilation

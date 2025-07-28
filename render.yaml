@@ -13,7 +13,7 @@ services:
     # Health check configuration - helps Render keep service alive
     healthCheckPath: /health
     
-    buildCommand: "pip install --upgrade pip setuptools wheel && pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu && pip install --only-binary=all -r requirements.txt"
+    buildCommand: "pip install --upgrade pip setuptools wheel && pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu && pip install --only-binary=all -r requirements-emergency.txt"
     
     startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1 --timeout-keep-alive 30"
     
