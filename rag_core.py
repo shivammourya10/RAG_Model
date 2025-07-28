@@ -58,7 +58,7 @@ class HybridEmbeddingOptimizer:
 
 def create_smart_embedder(*args, **kwargs):
     from sentence_transformers import SentenceTransformer
-    return SentenceTransformer('all-MiniLM-L6-v2')
+    return SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
 
 # Feature availability flags
 INMEMORY_AVAILABLE = True  # Built-in implementation available
@@ -526,9 +526,9 @@ class RAGEngine:
         return result
     
     def _optimize_context_for_speed(self, context_chunks: List[str]) -> str:
-        """SPEED-FIRST context optimization for sub-30s response times."""
-        # AGGRESSIVE limits for maximum speed
-        MAX_SPEED_CONTEXT = 1000  # Much smaller than normal for speed
+        """SPEED-FIRST context optimization for sub-15s response times."""
+        # ULTRA AGGRESSIVE limits for maximum speed
+        MAX_SPEED_CONTEXT = 600  # Even smaller for ultra-fast responses
         
         if not context_chunks:
             return ""
@@ -540,9 +540,9 @@ class RAGEngine:
         
         combined = "\n\n".join(context_chunks)
         
-        # Aggressive truncation for speed
+        # Ultra aggressive truncation for speed
         if len(combined) > MAX_SPEED_CONTEXT:
-            combined = combined[:MAX_SPEED_CONTEXT] + "\n\n[TRUNCATED FOR SPEED OPTIMIZATION]"
+            combined = combined[:MAX_SPEED_CONTEXT] + "\n\n[TRUNCATED FOR ULTRA SPEED]"
         
         return combined
     

@@ -63,8 +63,7 @@ class ModelCache:
             # Set environment variables for stable deployment
             os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
             os.environ['TOKENIZERS_PARALLELISM'] = 'false'
-            os.environ['TRANSFORMERS_CACHE'] = cache_folder or '/tmp/transformers_cache'
-            os.environ['HF_HOME'] = cache_folder or '/tmp/huggingface_cache'
+            os.environ['HF_HOME'] = cache_folder or '/tmp/huggingface_cache'  # Fixed: Use HF_HOME instead
             os.environ['TORCH_HOME'] = cache_folder or '/tmp/torch_cache'
             
             # Force CPU mode and prevent meta tensors
@@ -117,26 +116,27 @@ class ModelCache:
                     import torch
                     torch.set_default_device('cpu')
                     
-                    # Progressive fallback strategies
+                    # Progressive fallback strategies (FIXED: Avoid .to() calls)
                     if i == 1:
-                        # Fallback 1: Minimal configuration
+                        # Fallback 1: Minimal configuration with explicit CPU device
                         cls._embedder_cache = SentenceTransformer(
                             fallback_model,
                             device='cpu',
                             trust_remote_code=False
                         )
                     elif i == 2:
-                        # Fallback 2: No device specification
+                        # Fallback 2: Force CPU device from start (NO .to() call)
                         cls._embedder_cache = SentenceTransformer(
                             fallback_model,
+                            device='cpu',  # FIXED: Set device during initialization
                             trust_remote_code=False
                         )
-                        # Force to CPU after loading
-                        cls._embedder_cache = cls._embedder_cache.to('cpu')
                     else:
-                        # Fallback 3: Bare minimum
-                        cls._embedder_cache = SentenceTransformer(fallback_model)
-                        cls._embedder_cache = cls._embedder_cache.to('cpu')
+                        # Fallback 3: Bare minimum with CPU device (NO .to() call)
+                        cls._embedder_cache = SentenceTransformer(
+                            fallback_model,
+                            device='cpu'  # FIXED: Set device during initialization
+                        )
                     
                     # Test the model
                     test_result = cls._embedder_cache.encode("validation test", show_progress_bar=False)

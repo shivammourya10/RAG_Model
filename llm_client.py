@@ -222,19 +222,23 @@ Return only this JSON format:
             model = genai.GenerativeModel('gemini-1.5-flash')  # type: ignore
             
             # EXTREME SPEED OPTIMIZATION: Ultra-short prompt for sub-second response
-            if len(prompt) > 1500:  # Aggressive truncation for maximum speed
-                prompt = prompt[:1500] + "\n\nAnswer in JSON format only."
+            if len(prompt) > 800:  # More aggressive truncation for maximum speed
+                prompt = prompt[:800] + "\n\nAnswer briefly in JSON format."
             
             # PRODUCTION SPEED CONFIG: Minimized settings for fastest response
             response = await model.generate_content_async(
                 prompt,
                 generation_config=genai.types.GenerationConfig(  # type: ignore
-                    temperature=0.0,  # Zero temperature for fastest generation
-                    top_p=0.7,       # Reduced for speed
-                    max_output_tokens=200,  # Very short responses for speed
-                    candidate_count=1,      # Single candidate
-                    stop_sequences=["}"]    # Stop at JSON end for speed
-                )
+                    temperature=0.0,      # Zero temperature for fastest generation
+                    top_p=0.5,           # Reduced for speed
+                    top_k=1,             # Most restrictive for speed
+                    max_output_tokens=150, # Even shorter responses for speed
+                    candidate_count=1,    # Single candidate
+                    stop_sequences=["}"] # Stop at JSON end for speed
+                ),
+                request_options={
+                    "timeout": 10  # 10 second timeout to force faster responses
+                }
             )
             
             content = response.text

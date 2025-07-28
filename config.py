@@ -119,8 +119,8 @@ class Config:
     top_k_retrieval: int = int(os.getenv("TOP_K_RETRIEVAL", "3"))
     similarity_threshold: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.7"))
     
-    # Context management - OPTIMIZED FOR SPEED
-    max_context_length: int = int(os.getenv("MAX_CONTEXT_LENGTH", "2500"))
+    # Context management - ULTRA OPTIMIZED FOR SPEED
+    max_context_length: int = int(os.getenv("MAX_CONTEXT_LENGTH", "800"))  # Reduced for speed
     context_compression_enabled: bool = os.getenv("CONTEXT_COMPRESSION", "true").lower() == "true"
     
     # =============================================================================
