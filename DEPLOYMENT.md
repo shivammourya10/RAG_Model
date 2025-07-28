@@ -3,6 +3,41 @@
 ## ✅ Status: READY FOR DEPLOYMENT
 **All critical issues resolved | Performance optimized | Configuration complete**
 
+## 🔄 CRITICAL: Preventing Render Service Spin-Down
+
+### ⚠️ Important: Render Starter Plan Limitation
+Render's **Starter plan** automatically spins down services after **15 minutes of inactivity**. This can cause evaluation failures.
+
+### 🎯 Solutions:
+
+#### Option 1: Upgrade to Standard Plan (Recommended)
+- **Cost**: $25/month
+- **Benefit**: No automatic spin-down
+- **Best for**: Production/evaluation scenarios
+
+#### Option 2: Keep-Alive Script (FREE)
+Run this script on your local machine or any server:
+
+```bash
+# Using bash script (simple)
+./keep_alive.sh https://your-service.onrender.com
+
+# Using Python script (advanced)
+python keep_alive.py https://your-service.onrender.com --interval 10
+```
+
+#### Option 3: GitHub Actions Keep-Alive (FREE)
+- Automatically pings service every 10 minutes
+- Runs during business hours (9 AM - 6 PM IST)
+- Already configured in `.github/workflows/keep-alive.yml`
+- Update the `SERVICE_URL` with your actual Render URL
+
+#### Option 4: External Monitoring Service
+- Use services like UptimeRobot (free tier available)
+- Configure to ping `/health` endpoint every 5 minutes
+
+---
+
 ## Quick Fix Summary
 The PyTorch meta tensor error has been **RESOLVED** with the following production-ready fixes:
 

@@ -5,9 +5,14 @@ services:
   - type: web
     name: rag-model-api
     env: python
-    plan: starter
+    plan: starter  # Upgrade to 'standard' to prevent spin-down
     region: oregon
     branch: main
+    autoDeploy: false  # Prevent unnecessary deploys during evaluation
+    
+    # Health check configuration - helps Render keep service alive
+    healthCheckPath: /health
+    
     buildCommand: |
       # Render-optimized build process
       pip install --upgrade pip setuptools wheel
@@ -75,5 +80,5 @@ services:
       - key: OPENBLAS_NUM_THREADS
         value: "1"
       
-    # Health check configuration
+    # Health check configuration - keeps service responsive
     healthCheckPath: /health
