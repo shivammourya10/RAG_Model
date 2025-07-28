@@ -3,7 +3,8 @@
 torch==2.5.1
 transformers==4.46.2
 sentence-transformers==3.2.1
-tokenizers==0.20.1
+# Fixed: Use pre-compiled tokenizers to avoid Rust compilation
+tokenizers>=0.19.0,<0.21.0
 safetensors==0.4.5
 huggingface-hub==0.26.2
 

@@ -14,10 +14,28 @@ services:
     healthCheckPath: /health
     
     buildCommand: |
-      # Render-optimized build process
+      # Render-optimized build process with compilation fixes
       pip install --upgrade pip setuptools wheel
+      
+      # Install PyTorch CPU-only first (most important)
       pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
-      pip install -r requirements.txt
+      
+      # Try main requirements first, fallback to minimal if compilation fails
+      echo "📦 Attempting to install main requirements..."
+      pip install --only-binary=tokenizers,safetensors -r requirements.txt || {
+        echo "⚠️ Main requirements failed, trying minimal set..."
+        pip install -r requirements-minimal.txt
+      }
+      
+      # Verify core packages are installed
+      python -c "
+      try:
+          import torch, transformers, sentence_transformers, fastapi
+          print('✅ Core packages verified')
+      except ImportError as e:
+          print(f'❌ Missing core package: {e}')
+          exit(1)
+      "
       
       # Create cache directories
       mkdir -p /tmp/huggingface_cache /tmp/torch_cache

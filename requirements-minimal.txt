@@ -1,0 +1,43 @@
+# RENDER-OPTIMIZED REQUIREMENTS (Minimal for deployment)
+# Core ML/AI - using pre-compiled wheels only
+torch==2.5.1
+transformers==4.45.0
+sentence-transformers==3.1.1
+# Use range to get pre-compiled version
+tokenizers>=0.19.0,<0.21.0
+safetensors>=0.4.0,<0.5.0
+huggingface-hub>=0.25.0,<0.27.0
+
+# Scientific computing
+numpy>=1.26.0,<1.27.0
+scipy>=1.11.0,<1.12.0
+scikit-learn>=1.5.0,<1.6.0
+
+# FastAPI and web framework
+fastapi==0.115.4
+uvicorn[standard]==0.35.0
+pydantic>=2.9.0,<3.0.0
+
+# Document processing (minimal set)
+PyPDF2>=3.0.0,<4.0.0
+python-docx>=1.1.0,<2.0.0
+python-multipart>=0.0.6,<1.0.0
+
+# Vector storage
+faiss-cpu>=1.8.0,<2.0.0
+
+# Optional: Pinecone (only if using backup storage)
+# pinecone-client>=3.0.0,<4.0.0
+
+# Database (only if using PostgreSQL)
+# psycopg2-binary>=2.9.0,<3.0.0
+
+# HTTP client
+httpx>=0.27.0,<1.0.0
+
+# Environment and configuration
+python-dotenv>=1.0.0,<2.0.0
+
+# Utilities
+python-magic>=0.4.27,<1.0.0
+tqdm>=4.66.0,<5.0.0
