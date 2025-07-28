@@ -36,7 +36,14 @@ try:
 except ImportError:
     genai = None
 import google.generativeai as genai
-import tiktoken
+
+# Optional OpenAI token counting (not needed for Gemini)
+try:
+    import tiktoken
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    tiktoken = None
+    TIKTOKEN_AVAILABLE = False
 
 # Import configuration
 from config import config
@@ -55,14 +62,17 @@ class TokenCounter:
         self.config = config
         self.encoding = None
         
-        # Initialize token encoding if enabled
-        if self.config.enable_token_counting:
+        # Initialize token encoding if enabled and available
+        if self.config.enable_token_counting and TIKTOKEN_AVAILABLE and tiktoken is not None:
             try:
                 # Use cl100k_base encoding (compatible with GPT-4 and most models)
                 self.encoding = tiktoken.get_encoding("cl100k_base")
             except Exception as e:
                 print(f"Warning: Could not initialize token encoding: {e}")
                 self.encoding = None
+        else:
+            # Skip token counting if tiktoken not available (Gemini doesn't need it)
+            self.encoding = None
     
     def count_tokens(self, text: str) -> int:
         """
