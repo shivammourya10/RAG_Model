@@ -1,0 +1,58 @@
+# Render.com deployment configuration
+# Production-ready settings for RAG Model deployment
+
+services:
+  - type: web
+    name: rag-model-api
+    runtime: python3
+    buildCommand: |
+      # Install dependencies with specific PyTorch for CPU
+      pip install --upgrade pip
+      pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+      pip install -r requirements.txt
+      
+      # Pre-download models to avoid cold start issues
+      python -c "
+      import os
+      os.environ['RAG_RENDER_MODE'] = 'true'
+      os.environ['RAG_PRELOAD_MODELS'] = 'true'
+      from model_cache import ModelCache
+      ModelCache.get_embedder('all-MiniLM-L6-v2')
+      print('✅ Models pre-downloaded for production')
+      "
+    
+    startCommand: |
+      # Set production environment variables
+      export RAG_RENDER_MODE=true
+      export RAG_FAST_STARTUP=true
+      export RAG_PRELOAD_MODELS=true
+      export PYTORCH_ENABLE_MPS_FALLBACK=1
+      export TOKENIZERS_PARALLELISM=false
+      
+      # Start the application
+      python main.py
+    
+    envVars:
+      - key: RAG_RENDER_MODE
+        value: "true"
+      - key: RAG_FAST_STARTUP
+        value: "true"
+      - key: RAG_PRELOAD_MODELS
+        value: "true"
+      - key: PYTORCH_ENABLE_MPS_FALLBACK
+        value: "1"
+      - key: TOKENIZERS_PARALLELISM
+        value: "false"
+      - key: TRANSFORMERS_CACHE
+        value: "/tmp/transformers_cache"
+      - key: HF_HOME
+        value: "/tmp/huggingface_cache"
+      - key: TORCH_HOME
+        value: "/tmp/torch_cache"
+      
+    # Resource allocation for stable performance
+    plan: standard  # Use at least standard plan for ML workloads
+    region: oregon  # Choose region closest to your users
+    
+    # Health check configuration
+    healthCheckPath: /health

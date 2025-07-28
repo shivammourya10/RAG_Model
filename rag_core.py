@@ -3,6 +3,11 @@ import asyncio
 import time
 import os
 import hashlib
+
+# Set critical environment variables for PyTorch compatibility BEFORE any imports
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+
 from sentence_transformers import SentenceTransformer
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from typing import List, Dict, Tuple, Optional
@@ -13,6 +18,7 @@ import numpy as np
 from llm_client import LLMClient
 from doc_processor import DocumentProcessor
 from database import DatabaseManager
+from model_cache import ModelCache  # Import model cache for cold start optimization
 
 from config import (
     PINECONE_API_KEY, PINECONE_ENVIRONMENT, PINECONE_INDEX_NAME,
@@ -93,14 +99,49 @@ class RAGEngine:
     def _initialize_services(self):
         """Initialize all required services with hybrid vector storage"""
         try:
-            # Initialize embeddings model with potential binary optimization
+            # Set additional torch configurations for better compatibility
+            try:
+                import torch
+                if hasattr(torch, 'set_default_device'):
+                    torch.set_default_device('cpu')
+                # Force CPU mode to avoid device issues
+                torch.set_num_threads(1)  # Reduce threading issues
+            except:
+                pass  # Continue if torch config fails
+            
+            # Initialize embeddings model with cache optimization
             print("🔄 Loading embedding model...")
             if self.quantum_mode and self.use_binary and BINARY_AVAILABLE:
                 print("🚀 Using Binary Embeddings (100x faster)")
                 self.embedder = create_smart_embedder(chunk_count=1000)  # Reasonable default
             else:
                 print("📊 Using Standard Embeddings")
-                self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
+                # Use cached model for faster startup
+                self.embedder = ModelCache.get_embedder('all-MiniLM-L12-v2')
+                
+                # Handle case where model loading completely fails
+                if self.embedder is None:
+                    print("⚠️ Model cache failed, trying alternative approaches...")
+                    try:
+                        # Try 1: Set torch default device to CPU first
+                        import torch
+                        if hasattr(torch, 'set_default_device'):
+                            torch.set_default_device('cpu')
+                        
+                        # Try 2: Use environment variables to disable device optimization
+                        os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+                        os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+                        
+                        # Try 3: Load with minimal configuration
+                        self.embedder = SentenceTransformer(
+                            'all-MiniLM-L6-v2',
+                            device='cpu',
+                            trust_remote_code=True
+                        )
+                        print("✅ Alternative model loading successful")
+                    except Exception as direct_error:
+                        print(f"❌ All embedding approaches failed: {direct_error}")
+                        raise Exception(f"Cannot initialize any embedding model: {direct_error}")
             print("✅ Embeddings model loaded")
             
             # Initialize text splitter

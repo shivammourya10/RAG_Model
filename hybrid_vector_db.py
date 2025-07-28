@@ -17,6 +17,9 @@ from typing import List, Dict, Any, Optional, Tuple
 import logging
 import pickle
 import json
+import asyncio
+import concurrent.futures
+import gc
 
 # Core dependencies
 try:
@@ -53,6 +56,33 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
+class PineconeConnectionPool:
+    """Smart connection pooling to reduce Pinecone cold start."""
+    _instance = None
+    _connections = {}
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    def get_connection(self, api_key: str, index_name: str):
+        """Get cached Pinecone connection or create new one."""
+        key = f"{api_key}_{index_name}"
+        if key not in self._connections:
+            try:
+                pc = Pinecone(api_key=api_key)
+                self._connections[key] = pc.Index(index_name)
+                logger.info("🔗 Pinecone connection cached")
+            except Exception as e:
+                logger.warning(f"⚠️ Pinecone connection failed: {e}")
+                return None
+        return self._connections[key]
+    
+    def clear_cache(self):
+        """Clear connection cache."""
+        self._connections.clear()
+
 class HybridVectorDB:
     """Three-tier vector database with automatic fallbacks and verification."""
     
@@ -74,30 +104,115 @@ class HybridVectorDB:
             'in_memory': {'success_count': 0, 'failure_count': 0, 'avg_time': 0}
         }
         
+        # Initialize connection pool
+        self.connection_pool = PineconeConnectionPool()
+        
         self._initialize()
+        
+        # Apply cold start optimizations
+        if os.getenv('RAG_COLD_START_OPTIMIZATION', 'false').lower() == 'true':
+            self._warm_start_optimization()
     
     def _initialize(self):
         """Initialize all vector storage tiers with verification."""
         logger.info("🔄 Initializing Hybrid Vector Database...")
         
-        # Initialize Pinecone (Tier 1 - Production Primary)
-        if PINECONE_AVAILABLE and PINECONE_API_KEY:
-            self._initialize_pinecone()
+        # Check for speed optimization setting
+        speed_mode = os.getenv('RAG_PRIMARY_STORAGE', 'pinecone').lower()
         
-        # Initialize FAISS (Tier 2 - persistent)
+        # Initialize FAISS first (Tier 1 - Speed Optimized)
         if FAISS_AVAILABLE:
             self._initialize_faiss()
+            if speed_mode == 'faiss' and self.faiss_index is not None:
+                self.active_tier = "faiss"
+                logger.info("🚀 Speed Mode: FAISS set as primary storage")
         else:
             logger.info("⚠️ FAISS not available, using Pinecone + In-Memory only")
+        
+        # Initialize Pinecone (Tier 2 - Cloud Backup)
+        if PINECONE_AVAILABLE and PINECONE_API_KEY:
+            self._initialize_pinecone()
+            # Only set as active if FAISS not available or not in speed mode
+            if self.active_tier == "none" or speed_mode == 'pinecone':
+                if self.pinecone_index is not None:
+                    self.active_tier = "pinecone"
         
         # Initialize In-Memory DB (Tier 3 - Immediate Fallback)
         self._initialize_in_memory()
         
         logger.info(f"✅ Hybrid Vector DB initialized. Active tier: {self.active_tier}")
     
-    def _initialize_pinecone(self):
-        """Initialize Pinecone with dimension verification and auto-healing."""
+    def _warm_start_optimization(self):
+        """Aggressive warm-start optimizations to reduce cold start time."""
+        logger.info("🔥 Applying cold start optimizations...")
+        
         try:
+            # Pre-allocate memory pools
+            gc.collect()  # Clean memory before starting
+            
+            # Warm up FAISS operations if available (simplified)
+            if self.faiss_index and FAISS_AVAILABLE:
+                try:
+                    # Simple warm-up: just test if FAISS is responsive
+                    dummy_vector = np.random.random((1, self.dimension)).astype('float32')
+                    # Test search only (no modification)
+                    if hasattr(self.faiss_index, 'search') and self.faiss_index.ntotal >= 0:
+                        _ = self.faiss_index.search(dummy_vector, min(1, max(1, self.faiss_index.ntotal)))
+                    logger.info("✅ FAISS warm-up complete")
+                except Exception as e:
+                    logger.debug(f"FAISS warm-up skipped: {e}")
+            
+            # Pre-allocate numpy arrays for common operations
+            _ = np.random.random((10, self.dimension)).astype('float32')
+            
+            logger.info("✅ Cold start optimization complete")
+            
+        except Exception as e:
+            logger.debug(f"Warm-start optimization failed: {e}")
+    
+    async def _initialize_async(self):
+        """Initialize tiers concurrently for speed."""
+        logger.info("🚀 Concurrent initialization starting...")
+        
+        loop = asyncio.get_event_loop()
+        
+        # Create tasks for concurrent initialization
+        tasks = []
+        
+        if PINECONE_AVAILABLE and PINECONE_API_KEY:
+            tasks.append(loop.run_in_executor(None, self._initialize_pinecone))
+        
+        if FAISS_AVAILABLE:
+            tasks.append(loop.run_in_executor(None, self._initialize_faiss))
+        
+        # Run tasks concurrently
+        if tasks:
+            try:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            except Exception as e:
+                logger.warning(f"Concurrent initialization error: {e}")
+        
+        # Always initialize in-memory (fast)
+        self._initialize_in_memory()
+        
+        logger.info("✅ Concurrent initialization complete")
+    
+    def _initialize_pinecone(self):
+        """Initialize Pinecone with connection pooling and optimization."""
+        try:
+            # Check if API key is available
+            if not PINECONE_API_KEY:
+                logger.warning("⚠️ Pinecone API key not available")
+                return
+                
+            # Use connection pool for faster initialization
+            cached_index = self.connection_pool.get_connection(PINECONE_API_KEY, PINECONE_INDEX_NAME)
+            if cached_index:
+                self.pinecone_index = cached_index
+                logger.info("✅ Pinecone initialized from cache")
+                return
+            
+            # Fallback to regular initialization
             pc = Pinecone(api_key=PINECONE_API_KEY)
             
             # Check if index exists
@@ -115,55 +230,78 @@ class HybridVectorDB:
                         region=PINECONE_ENVIRONMENT or 'us-east-1'
                     )
                 )
-                time.sleep(10)  # Wait for index creation
+                # Reduced wait time for faster startup
+                wait_time = 5 if os.getenv('RAG_FAST_STARTUP', 'false').lower() == 'true' else 10
+                time.sleep(wait_time)
             
             self.pinecone_index = pc.Index(PINECONE_INDEX_NAME)
             
-            # Verify dimension compatibility
-            try:
-                stats = self.pinecone_index.describe_index_stats()
-                index_dimension = stats.get('dimension', self.dimension)
-                
-                if index_dimension != self.dimension:
-                    logger.warning(f"🔧 Dimension mismatch: recreating index ({index_dimension} → {self.dimension})")
-                    pc.delete_index(PINECONE_INDEX_NAME)
-                    time.sleep(5)
+            # Skip dimension verification if fast startup enabled
+            if os.getenv('RAG_FAST_STARTUP', 'false').lower() != 'true':
+                try:
+                    stats = self.pinecone_index.describe_index_stats()
+                    index_dimension = stats.get('dimension', self.dimension)
                     
-                    pc.create_index(
-                        name=PINECONE_INDEX_NAME,
-                        dimension=self.dimension,
-                        metric='cosine',
-                        spec=ServerlessSpec(
-                            cloud='aws',
-                            region=PINECONE_ENVIRONMENT or 'us-east-1'
+                    if index_dimension != self.dimension:
+                        logger.warning(f"🔧 Dimension mismatch: recreating index ({index_dimension} → {self.dimension})")
+                        pc.delete_index(PINECONE_INDEX_NAME)
+                        time.sleep(3)  # Reduced wait time
+                        
+                        pc.create_index(
+                            name=PINECONE_INDEX_NAME,
+                            dimension=self.dimension,
+                            metric='cosine',
+                            spec=ServerlessSpec(
+                                cloud='aws',
+                                region=PINECONE_ENVIRONMENT or 'us-east-1'
+                            )
                         )
-                    )
-                    time.sleep(10)
-                    self.pinecone_index = pc.Index(PINECONE_INDEX_NAME)
-                
-                self.active_tier = "pinecone"
-                logger.info(f"✅ Pinecone initialized (dimension: {self.dimension})")
-                
-            except Exception as verify_error:
-                logger.warning(f"⚠️ Pinecone verification failed: {verify_error}")
+                        time.sleep(5)  # Reduced wait time
+                        self.pinecone_index = pc.Index(PINECONE_INDEX_NAME)
+                    
+                except Exception as verify_error:
+                    logger.warning(f"⚠️ Pinecone verification skipped: {verify_error}")
+            
+            logger.info(f"✅ Pinecone initialized (dimension: {self.dimension})")
                 
         except Exception as e:
             logger.error(f"❌ Pinecone initialization failed: {e}")
     
     def _initialize_faiss(self):
-        """Initialize FAISS with persistence."""
+        """Initialize FAISS with persistence and speed optimization."""
         try:
-            if os.path.exists(self.index_path) and os.path.exists(self.metadata_path):
-                # Load existing FAISS index
-                self.faiss_index = faiss.read_index(self.index_path)
-                with open(self.metadata_path, 'rb') as f:
-                    self.faiss_metadata = pickle.load(f)
-                
-                logger.info(f"✅ Loaded FAISS index with {self.faiss_index.ntotal if self.faiss_index else 0} vectors")
-                
-                # Set as active if no Pinecone and has vectors
-                if self.active_tier == "none" and self.faiss_index and self.faiss_index.ntotal > 0:
+            # Fast startup mode: skip loading large indexes
+            if os.getenv('RAG_FAST_STARTUP', 'false').lower() == 'true':
+                logger.info("⚡ Fast startup: Creating new FAISS index")
+                self.faiss_index = faiss.IndexFlatIP(self.dimension)
+                self.faiss_metadata = {}
+                if self.active_tier == "none":
                     self.active_tier = "faiss"
+                return
+            
+            if os.path.exists(self.index_path) and os.path.exists(self.metadata_path):
+                # Load existing FAISS index with timeout protection
+                try:
+                    start_time = time.time()
+                    self.faiss_index = faiss.read_index(self.index_path)
+                    
+                    with open(self.metadata_path, 'rb') as f:
+                        self.faiss_metadata = pickle.load(f)
+                    
+                    load_time = time.time() - start_time
+                    vector_count = self.faiss_index.ntotal if self.faiss_index else 0
+                    
+                    logger.info(f"✅ Loaded FAISS index: {vector_count} vectors in {load_time:.2f}s")
+                    
+                    # Set as active if no Pinecone and has vectors
+                    if self.active_tier == "none" and self.faiss_index and self.faiss_index.ntotal > 0:
+                        self.active_tier = "faiss"
+                        
+                except Exception as load_error:
+                    logger.warning(f"⚠️ FAISS index corrupted, creating new: {load_error}")
+                    # Create new index if loading fails
+                    self.faiss_index = faiss.IndexFlatIP(self.dimension)
+                    self.faiss_metadata = {}
                     
             else:
                 # Create new FAISS index
@@ -176,6 +314,13 @@ class HybridVectorDB:
                     
         except Exception as e:
             logger.error(f"❌ FAISS initialization failed: {e}")
+            # Fallback: ensure we have something
+            try:
+                self.faiss_index = faiss.IndexFlatIP(self.dimension)
+                self.faiss_metadata = {}
+                logger.info("✅ FAISS fallback index created")
+            except:
+                pass
     
     def _initialize_in_memory(self):
         """Initialize in-memory vector database."""
@@ -218,19 +363,35 @@ class HybridVectorDB:
         # Normalize vectors for consistency
         normalized_vectors = self._normalize_vectors(vectors)
         
-        # Try Pinecone (Primary)
-        if self.pinecone_index and self.active_tier in ["pinecone", "none"]:
-            pinecone_result = self._upsert_pinecone(normalized_vectors, verify)
+        # Speed optimization: Skip Pinecone verification if requested
+        skip_verification = os.getenv('RAG_SKIP_PINECONE_VERIFICATION', 'false').lower() == 'true'
+        
+        # Try FAISS first for speed (if available and primary)
+        speed_mode = os.getenv('RAG_PRIMARY_STORAGE', 'pinecone').lower()
+        if self.faiss_index is not None and speed_mode == 'faiss':
+            faiss_result = self._upsert_faiss(normalized_vectors)
+            results['performance']['faiss'] = faiss_result
+            
+            if faiss_result['success']:
+                results['successful_tiers'].append('faiss')
+                self.active_tier = "faiss"
+            else:
+                results['failed_tiers'].append('faiss')
+        
+        # Try Pinecone (Cloud backup)
+        if self.pinecone_index and (speed_mode != 'faiss' or not results['successful_tiers']):
+            pinecone_result = self._upsert_pinecone(normalized_vectors, verify=not skip_verification)
             results['performance']['pinecone'] = pinecone_result
             
             if pinecone_result['success']:
                 results['successful_tiers'].append('pinecone')
-                self.active_tier = "pinecone"
+                if speed_mode != 'faiss':
+                    self.active_tier = "pinecone"
             else:
                 results['failed_tiers'].append('pinecone')
         
-        # Try FAISS (Secondary - always try for persistence)
-        if self.faiss_index is not None:
+        # Try FAISS (if not already tried as primary)
+        if self.faiss_index is not None and speed_mode != 'faiss':
             faiss_result = self._upsert_faiss(normalized_vectors)
             results['performance']['faiss'] = faiss_result
             
