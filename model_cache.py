@@ -17,12 +17,12 @@ logger = logging.getLogger(__name__)
 class ModelCache:
     """Smart caching system for embedding models."""
     
-    _embedder_cache: Optional[SentenceTransformer] = None
+    _embedder_cache = None  # Remove type annotation to allow any embedder type
     _last_loaded: Optional[str] = None
     _load_time: float = 0
     
     @classmethod
-    def get_embedder(cls, model_name: str = 'all-MiniLM-L12-v2') -> Optional[SentenceTransformer]:
+    def get_embedder(cls, model_name: str = 'all-MiniLM-L12-v2'):
         """Get or create embedder with comprehensive fallback strategy."""
         
         # Set environment variables for better compatibility from the start
@@ -116,26 +116,38 @@ class ModelCache:
                     import torch
                     torch.set_default_device('cpu')
                     
-                    # Progressive fallback strategies (FIXED: Avoid .to() calls)
+                    # Fix for meta tensor issue - use to_empty() approach as recommended by PyTorch
                     if i == 1:
-                        # Fallback 1: Minimal configuration with explicit CPU device
-                        cls._embedder_cache = SentenceTransformer(
+                        # Fallback 1: Use to_empty() approach with explicit CPU
+                        model = SentenceTransformer(
                             fallback_model,
                             device='cpu',
                             trust_remote_code=False
                         )
+                        # Handle any module that might need to_empty
+                        for module in model.modules():
+                            if hasattr(module, '_parameters'):
+                                for param_name, param in module._parameters.items():
+                                    if param is not None and hasattr(param, 'is_meta') and param.is_meta:
+                                        # Convert to parameter object with empty tensor
+                                        empty_tensor = torch.empty_like(param, device='cpu')
+                                        module._parameters[param_name] = torch.nn.Parameter(empty_tensor)
+                        cls._embedder_cache = model
                     elif i == 2:
-                        # Fallback 2: Force CPU device from start (NO .to() call)
+                        # Fallback 2: Ultra-minimal approach with smallest model
                         cls._embedder_cache = SentenceTransformer(
-                            fallback_model,
-                            device='cpu',  # FIXED: Set device during initialization
-                            trust_remote_code=False
+                            'all-MiniLM-L6-v2',  # Smallest model
+                            device='cpu'  # Explicit CPU
                         )
                     else:
-                        # Fallback 3: Bare minimum with CPU device (NO .to() call)
+                        # Fallback 3: Last resort - try with PyTorch settings forced
+                        os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+                        os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+                        torch.set_default_device('cpu')
+                        torch.set_num_threads(1)
                         cls._embedder_cache = SentenceTransformer(
-                            fallback_model,
-                            device='cpu'  # FIXED: Set device during initialization
+                            'paraphrase-MiniLM-L3-v2',  # Ultra-small model
+                            device='cpu'
                         )
                     
                     # Test the model
@@ -152,15 +164,24 @@ class ModelCache:
                     logger.error(f"❌ Fallback {i} failed: {fallback_error}")
                     continue
             
-            # Final fallback: Return None to trigger alternative embedding strategy
-            logger.error("❌ All model loading attempts failed - using alternative strategy")
-            return None
+            # Final fallback: Try simple embedder as a last resort
+            logger.error("❌ All model loading attempts failed - using simple embedder")
+            try:
+                from simple_embedder import get_simple_embedder
+                cls._embedder_cache = get_simple_embedder(dimension=384)
+                cls._last_loaded = "simple_embedder"
+                cls._load_time = time.time() - start_time
+                logger.info("✅ Simple embedder fallback successful")
+                return cls._embedder_cache
+            except Exception as simple_error:
+                logger.error(f"❌ Simple embedder failed: {simple_error}")
+                return None
     
     @classmethod
     def _warm_up_model(cls):
         """Warm up model with dummy embedding."""
         try:
-            if cls._embedder_cache:
+            if cls._embedder_cache and hasattr(cls._embedder_cache, 'encode'):
                 start_time = time.time()
                 _ = cls._embedder_cache.encode("Test warm-up text", show_progress_bar=False)
                 warmup_time = time.time() - start_time

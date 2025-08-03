@@ -57,12 +57,27 @@ class HybridEmbeddingOptimizer:
         pass
 
 def create_smart_embedder(*args, **kwargs):
-    from sentence_transformers import SentenceTransformer
-    return SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+    try:
+        from sentence_transformers import SentenceTransformer
+        # CRITICAL FIX: Initialize directly on CPU to avoid meta tensor issues
+        import torch
+        if hasattr(torch, 'set_default_device'):
+            torch.set_default_device('cpu')
+        # Load smallest model for fastest performance
+        return SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+    except Exception as e:
+        print(f"❌ SentenceTransformer failed: {e}")
+        # Fallback to simple embedder if everything fails
+        try:
+            from simple_embedder import get_simple_embedder
+            return get_simple_embedder(dimension=384)
+        except Exception as e2:
+            print(f"❌ Simple embedder also failed: {e2}")
+            raise
 
 # Feature availability flags
 INMEMORY_AVAILABLE = True  # Built-in implementation available
-BINARY_AVAILABLE = False   # Use standard embeddings
+BINARY_AVAILABLE = True   # Use standard embeddings
 
 # Import new hybrid vector database
 try:
@@ -113,35 +128,28 @@ class RAGEngine:
             print("🔄 Loading embedding model...")
             if self.quantum_mode and self.use_binary and BINARY_AVAILABLE:
                 print("🚀 Using Binary Embeddings (100x faster)")
-                self.embedder = create_smart_embedder(chunk_count=1000)  # Reasonable default
+                try:
+                    self.embedder = create_smart_embedder(chunk_count=1000)  # Reasonable default
+                except Exception as e:
+                    print(f"❌ Binary embeddings failed: {e}")
+                    # Fall back to simple embedder
+                    from simple_embedder import get_simple_embedder
+                    self.embedder = get_simple_embedder(dimension=384)
             else:
                 print("📊 Using Standard Embeddings")
                 # Use cached model for faster startup
-                self.embedder = ModelCache.get_embedder('all-MiniLM-L12-v2')
-                
-                # Handle case where model loading completely fails
-                if self.embedder is None:
-                    print("⚠️ Model cache failed, trying alternative approaches...")
+                try:
+                    self.embedder = ModelCache.get_embedder('all-MiniLM-L6-v2')
+                except Exception as e:
+                    print(f"❌ Model cache failed: {e}")
                     try:
-                        # Try 1: Set torch default device to CPU first
-                        import torch
-                        if hasattr(torch, 'set_default_device'):
-                            torch.set_default_device('cpu')
-                        
-                        # Try 2: Use environment variables to disable device optimization
-                        os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
-                        os.environ['TOKENIZERS_PARALLELISM'] = 'false'
-                        
-                        # Try 3: Load with minimal configuration
-                        self.embedder = SentenceTransformer(
-                            'all-MiniLM-L6-v2',
-                            device='cpu',
-                            trust_remote_code=True
-                        )
-                        print("✅ Alternative model loading successful")
-                    except Exception as direct_error:
-                        print(f"❌ All embedding approaches failed: {direct_error}")
-                        raise Exception(f"Cannot initialize any embedding model: {direct_error}")
+                        # Last resort - simple embedder
+                        from simple_embedder import get_simple_embedder
+                        self.embedder = get_simple_embedder(dimension=384)
+                        print("✅ Using simple embedder (hash-based)")
+                    except Exception as fallback_error:
+                        print(f"❌ All embedding approaches failed: {fallback_error}")
+                        raise Exception(f"Cannot initialize any embedding model: {fallback_error}")
             print("✅ Embeddings model loaded")
             
             # Initialize text splitter
